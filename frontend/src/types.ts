@@ -1,0 +1,6 @@
+export type Identity = {room_code:string;participant_id:string;session_id:string;source_label:string;token:string;is_host:boolean};
+export type Participant = {id:string;source_label:string;name:string;is_host:boolean;mic:boolean;ready:boolean;connected:boolean;error:string|null};
+export type Recording = {participant_id:string;source_label:string;status:string;mime_type:string|null;actual_started_at:number|null;expected_chunks:number|null;error:string|null;interrupted:boolean;participant_recording_id?:string;sample_rate?:number|null;channel_count?:number|null;duration_ms?:number|null;byte_size?:number|null;received_chunks?:number;missing_chunks?:number|null};
+export type Conditions = Record<string,string|number>;
+export type Room = {id:string;room_id:string;status:string;conditions:Conditions;started_at:number|null;starts_at:number|null;stopped_at:number|null;server_now:number;ready_count:number;participants:Participant[];recordings:Recording[];closed_at?:string|null;expires_at?:string};
+export const phaseNames:Record<string,string>={waiting:'等待就緒',preparing:'裝置準備中',countdown:'統一倒數',recording:'錄音進行中',finalizing:'等待音訊封存',completed:'三聲源儲存完成',interrupted:'錄音中斷，請檢查各聲源',pending:'尚未錄製',prepared:'裝置已準備',uploading:'上傳中',stored:'儲存完成',failed:'儲存失敗，等待補傳'};

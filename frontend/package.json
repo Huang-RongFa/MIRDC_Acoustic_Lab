@@ -1,0 +1,27 @@
+{
+  "name": "cnc-acoustic-lab",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "build:pages": "tsc --noEmit && vite build --mode pages --base /MIRDC_Acoustic_Lab/ --outDir ../pages-site",
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "overrides": {
+    "rollup": "npm:@rollup/wasm-node@4.68.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "rollup": "npm:@rollup/wasm-node@^4.68.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.0"
+  }
+}

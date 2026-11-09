@@ -1,0 +1,18 @@
+# Run from the repository root after building frontend/dist.
+# CNC_SITE_ADDRESS must be a DNS name pointing to this server.
+{$CNC_SITE_ADDRESS} {
+    encode zstd gzip
+    header {
+        Permissions-Policy "microphone=(self)"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:8015
+    }
+    handle {
+        root * frontend/dist
+        try_files {path} /index.html
+        file_server
+    }
+}
