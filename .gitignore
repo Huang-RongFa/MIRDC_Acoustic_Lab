@@ -1,0 +1,70 @@
+# Credentials and local configuration
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.pgpass
+pgpass.conf
+.pg_service.conf
+credentials.json
+secrets.json
+secrets/
+.aws/
+
+# Dependencies and Python environments
+node_modules/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+
+# Generated output and local caches
+dist/
+build/
+.next/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage/
+coverage-*.json
+htmlcov/
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+.DS_Store
+Thumbs.db
+
+# Raw recordings and temporary audio
+recordings/
+raw_audio/
+*.wav
+*.flac
+*.pcm
+*.raw
+*.mp3
+*.m4a
+*.aac
+*.ogg
+*.aiff
+
+# Database data and backups (keep schema and verification SQL)
+pgdata/
+backups/
+*.dump
+*.backup
+*.bak
+*.sql.gz
+*.sql.zip
+*_dump.sql
+*_backup.sql
+
+# Machine-specific Graphify state; share the graph itself
+graphify-out/.graphify_python
+graphify-out/.graphify_root

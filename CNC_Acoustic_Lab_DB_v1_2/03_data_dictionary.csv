@@ -1,0 +1,424 @@
+﻿table,field,type,required,unit,description
+app_users,user_id,UUID,True,—,使用者唯一識別碼；由資料庫產生
+app_users,display_name,TEXT,True,—,操作人員顯示名稱
+app_users,email,TEXT,True,—,登入電子郵件，必須唯一
+app_users,role,TEXT,True,—,角色：admin 管理員／researcher 研究員
+app_users,is_active,BOOLEAN,True,—,帳號是否啟用
+app_users,created_at,TIMESTAMPTZ,True,—,建立時間（含時區）
+machines,machine_id,UUID,True,—,機台唯一識別碼
+machines,machine_code,TEXT,True,—,機台編號，例如 CNC-01；不可重複
+machines,machine_name,TEXT,True,—,機台顯示名稱
+machines,machine_type,TEXT,False,—,機台類別，例如三軸立式加工中心
+machines,manufacturer,TEXT,False,—,機台製造商
+machines,model,TEXT,False,—,機台型號
+machines,controller_model,TEXT,False,—,CNC 控制器型號
+machines,spindle_max_rpm,"NUMERIC(12,2)",False,RPM,主軸額定最高轉速
+machines,spindle_power_kw,"NUMERIC(12,3)",False,kW,主軸額定功率
+machines,location,TEXT,False,—,實際設備所在地／線別
+machines,is_active,BOOLEAN,True,—,是否允許新實驗選用
+machines,created_at,TIMESTAMPTZ,True,—,機台主檔建立時間
+machines,machine_serial_no,TEXT,False,—,實際 CNC 機台原廠序號，用於辨識同型號不同機台
+machines,axis_count,SMALLINT,False,—,機台軸數
+machines,machine_enclosure,TEXT,False,—,機台外罩／隔音罩配置
+machines,commissioning_date,DATE,False,—,機台啟用日期
+materials,material_id,UUID,True,—,材料類型唯一識別碼
+materials,material_code,TEXT,True,—,材料代碼，例如 AL6061-T6
+materials,material_name,TEXT,True,—,材料名稱
+materials,specification,TEXT,False,—,補充材料規格敘述
+materials,material_grade,TEXT,False,—,材料牌號／狀態，例如 6061-T6
+materials,material_standard,TEXT,False,—,材料採用的標準，例如 ASTM／JIS
+materials,is_active,BOOLEAN,True,—,材料是否啟用
+materials,material_family,TEXT,False,—,材料族群，例如鋁合金、碳鋼、不鏽鋼
+materials,nominal_density_kg_m3,"NUMERIC(12,3)",False,kg/m³,材料名義密度，與本次量測值區分
+cutting_tools,tool_id,UUID,True,—,刀具型號唯一識別碼
+cutting_tools,tool_code,TEXT,True,—,刀具型號或庫存品號
+cutting_tools,tool_name,TEXT,True,—,刀具顯示名稱
+cutting_tools,tool_type,TEXT,True,—,刀具類型，例如平銑刀、面銑刀、鑽頭
+cutting_tools,tool_material,TEXT,False,—,刀具基材，例如硬質合金
+cutting_tools,manufacturer,TEXT,False,—,刀具製造商
+cutting_tools,model,TEXT,False,—,刀具製造型號
+cutting_tools,coating_type,TEXT,False,—,刀具塗層，例如 TiAlN
+cutting_tools,corner_radius_mm,"NUMERIC(10,3)",False,mm,刀角圓弧半徑
+cutting_tools,helix_angle_deg,"NUMERIC(8,3)",False,°,刀具螺旋角
+cutting_tools,diameter_mm,"NUMERIC(10,3)",False,mm,刀具名義直徑
+cutting_tools,flute_count,SMALLINT,False,—,刀具刃數 Z
+cutting_tools,is_active,BOOLEAN,True,—,是否可供新實驗選用
+cutting_tools,cutting_edge_length_mm,"NUMERIC(10,3)",False,mm,有效切削刃長度
+cutting_tools,edge_radius_um,"NUMERIC(10,3)",False,µm,切削刃鈍圓半徑
+cutting_tools,nominal_tool_length_mm,"NUMERIC(10,3)",False,mm,刀具規格標稱長度，不等於裝夾伸出長度
+capture_devices,device_id,UUID,True,—,錄音設備唯一識別碼
+capture_devices,device_code,TEXT,True,—,錄音介面代號，需唯一
+capture_devices,device_name,TEXT,True,—,錄音設備名稱
+capture_devices,input_channel_capacity,SMALLINT,True,—,可獨立擷取的音訊輸入通道數，至少三路
+capture_devices,shared_clock,BOOLEAN,True,—,設備輸入是否共用採樣時鐘；資料庫不會代為驗證
+capture_devices,manufacturer,TEXT,False,—,錄音介面製造商
+capture_devices,model,TEXT,False,—,錄音介面型號
+capture_devices,interface_serial_no,TEXT,False,—,錄音介面設備序號
+capture_devices,recording_host_name,TEXT,False,—,實際擷取音訊的電腦／主機名稱
+capture_devices,description,TEXT,False,—,裝置接線／設定備註
+capture_devices,is_active,BOOLEAN,True,—,是否可啟用錄音
+capture_devices,recording_host_os,TEXT,False,—,多通道錄音主機作業系統
+capture_devices,audio_driver_version,TEXT,False,—,錄音設備驅動版本
+capture_devices,firmware_version,TEXT,False,—,音訊介面韌體版本
+capture_devices,recording_service_version,TEXT,False,—,錄音主機服務版本
+capture_devices,supported_sample_rates_hz,INTEGER[],False,Hz,設備支援的採樣率列表
+capture_devices,input_channel_map,JSONB,True,—,硬體輸入端子與軟體聲道對應 JSON
+capture_devices,last_seen_at,TIMESTAMPTZ,False,—,錄音主機最後回報在線時間
+machining_presets,preset_id,UUID,True,—,加工範本唯一識別碼
+machining_presets,preset_name,TEXT,True,—,範本名稱，需唯一
+machining_presets,machine_id,UUID,False,—,範本預選的機台 ID，可留空
+machining_presets,material_id,UUID,False,—,範本預選的材料類型，可留空
+machining_presets,tool_id,UUID,False,—,範本預選的刀具規格，可留空
+machining_presets,process_type,TEXT,True,—,加工製程：milling／turning／drilling／other
+machining_presets,spindle_rpm,"NUMERIC(12,2)",False,RPM,設定主軸轉速，不是控制器回報實際轉速
+machining_presets,feed_mm_min,"NUMERIC(12,3)",False,mm/min,設定進給速度
+machining_presets,axial_depth_mm,"NUMERIC(10,3)",False,mm,設定軸向切深 ap
+machining_presets,radial_width_mm,"NUMERIC(10,3)",False,mm,設定徑向切寬 ae
+machining_presets,coolant_mode,TEXT,False,—,冷卻方式：dry／wet／mql／other
+machining_presets,operation_name,TEXT,False,—,加工操作名稱，例如端面銑削
+machining_presets,nc_program_code,TEXT,False,—,CNC 加工程式代碼
+machining_presets,toolpath_type,TEXT,False,—,刀具路徑類型，例如 straight／slotting／contour
+machining_presets,cutting_direction,TEXT,False,—,切削方向：climb／conventional／not_applicable／other
+machining_presets,feed_per_tooth_mm,"NUMERIC(12,6)",False,mm/tooth,每齒進給量 fz；可從進給、轉速與刃數計算
+machining_presets,cutting_speed_m_min,"NUMERIC(12,4)",False,m/min,切削速度 Vc；可由刀具直徑與轉速推得
+machining_presets,extra_params,JSONB,True,—,特定製程的擴充參數 JSON 物件
+machining_presets,is_active,BOOLEAN,True,—,範本是否提供選用
+machining_presets,updated_at,TIMESTAMPTZ,True,—,範本最後更新時間；需由應用程式維護
+machining_presets,nc_program_revision,TEXT,False,—,範本對應 NC 程式版本
+machining_presets,pass_no,INTEGER,False,—,範本預設走刀編號
+machining_presets,fixture_type,TEXT,False,—,預設夾具類型
+machining_presets,workholding_method,TEXT,False,—,預設工件夾持方式
+machining_presets,notes,TEXT,False,—,條件範本備註
+experiments,experiment_id,UUID,True,—,實驗群組唯一識別碼
+experiments,experiment_code,TEXT,True,—,研究用實驗代碼，例如 EXP-2026-01
+experiments,experiment_name,TEXT,True,—,實驗群組名稱
+experiments,research_objective,TEXT,False,—,研究問題或實驗目的
+experiments,owner_user_id,UUID,True,—,實驗負責人
+experiments,status,TEXT,True,—,研究群組狀態：planned／active／closed／archived
+experiments,notes,TEXT,False,—,實驗備註
+experiments,created_at,TIMESTAMPTZ,True,—,建立時間
+experiments,closed_at,TIMESTAMPTZ,False,—,研究群組結束時間
+experiments,research_protocol_version,TEXT,False,—,研究／實驗操作規範版本
+experiments,study_location,TEXT,False,—,實驗場域名稱
+experiments,target_sample_rate_hz,INTEGER,False,Hz,計畫使用的三通道採樣率
+experiment_conditions,condition_id,UUID,True,—,條件組唯一識別碼
+experiment_conditions,experiment_id,UUID,True,—,所屬實驗群組
+experiment_conditions,condition_code,TEXT,True,—,條件組代碼；同一實驗不可重複
+experiment_conditions,condition_name,TEXT,True,—,條件組名稱
+experiment_conditions,preset_id,UUID,False,—,參考的參數範本；可留空
+experiment_conditions,planned_parameters,JSONB,True,—,設計時的加工參數 JSON；不取代錄音當次快照
+experiment_conditions,planned_repeats,INTEGER,False,—,計畫重複試驗次數
+experiment_conditions,notes,TEXT,False,—,條件組備註
+experiment_conditions,created_at,TIMESTAMPTZ,True,—,條件組建立時間
+experiment_conditions,condition_factors,JSONB,True,—,研究變因與控制變因 JSON
+experiment_conditions,randomized_order,INTEGER,False,—,條件執行隨機化順序
+workpiece_samples,workpiece_sample_id,UUID,True,—,實際工件唯一識別碼
+workpiece_samples,sample_code,TEXT,True,—,工件個體／樣本代碼，例如 WP-001
+workpiece_samples,material_id,UUID,True,—,所屬材料類型；需與錄音 Session 相符
+workpiece_samples,batch_no,TEXT,False,—,材料批號／爐號
+workpiece_samples,heat_treatment,TEXT,False,—,工件熱處理狀態
+workpiece_samples,hardness_value,"NUMERIC(10,3)",False,依 hardness_scale,實測或出廠硬度數值
+workpiece_samples,hardness_scale,TEXT,False,—,硬度尺度：HB／HRC／HRB／HV／other
+workpiece_samples,length_mm,"NUMERIC(12,3)",False,mm,工件長度
+workpiece_samples,width_mm,"NUMERIC(12,3)",False,mm,工件寬度
+workpiece_samples,height_mm,"NUMERIC(12,3)",False,mm,工件高度／厚度
+workpiece_samples,notes,TEXT,False,—,工件裝夾與外觀備註
+workpiece_samples,created_at,TIMESTAMPTZ,True,—,工件樣本建檔時間
+workpiece_samples,workpiece_serial_no,TEXT,False,—,實體工件序號
+workpiece_samples,surface_condition,TEXT,False,—,工件表面狀態（量測前）
+workpiece_samples,material_certificate_uri,TEXT,False,—,材料證明／檢測報告檔案位置
+tool_instances,tool_instance_id,UUID,True,—,實體刀具唯一識別碼
+tool_instances,tool_id,UUID,True,—,所屬刀具型號
+tool_instances,instance_code,TEXT,True,—,實體刀具編號，例如 TOOL-001
+tool_instances,manufacturer_lot_no,TEXT,False,—,刀具出廠批次
+tool_instances,first_used_at,TIMESTAMPTZ,False,—,首次使用時間
+tool_instances,cumulative_cutting_min,"NUMERIC(12,3)",True,min,目前累積實際切削分鐘數；須由應用程式更新
+tool_instances,is_active,BOOLEAN,True,—,是否仍在使用
+tool_instances,notes,TEXT,False,—,實體刀具備註
+tool_instances,created_at,TIMESTAMPTZ,True,—,刀具建檔時間
+tool_instances,life_cycle_status,TEXT,True,—,實際刀具使用階段（非模型聲學判定）
+tool_setups,tool_setup_id,UUID,True,—,本次裝夾配置唯一識別碼
+tool_setups,setup_code,TEXT,True,—,裝夾配置編號
+tool_setups,tool_instance_id,UUID,True,—,被裝夾的實體刀具
+tool_setups,tool_id,UUID,True,—,刀具規格 ID；複合外鍵確保符合實體刀具
+tool_setups,machine_id,UUID,True,—,此裝夾配置使用的 CNC 機台
+tool_setups,holder_type,TEXT,True,—,刀把種類，例如熱縮刀把、筒夾刀把
+tool_setups,holder_code,TEXT,False,—,實際刀把代號
+tool_setups,tool_overhang_mm,"NUMERIC(10,3)",True,mm,刀具自固定基準伸出長度
+tool_setups,gauge_length_mm,"NUMERIC(10,3)",False,mm,刀具組合量測基準長度
+tool_setups,clamping_method,TEXT,False,—,夾持方式及程序
+tool_setups,measured_runout_um,"NUMERIC(10,3)",False,µm,刀具組裝後量測之徑向偏擺
+tool_setups,assembled_by,UUID,False,—,裝夾操作人員
+tool_setups,assembled_at,TIMESTAMPTZ,True,—,裝夾完成／登錄時間
+tool_setups,is_active,BOOLEAN,True,—,裝夾配置是否仍有效
+tool_setups,notes,TEXT,False,—,裝夾補充資訊
+tool_setups,holder_manufacturer,TEXT,False,—,刀把製造商
+tool_setups,holder_model,TEXT,False,—,刀把型號
+tool_setups,collet_or_chuck_type,TEXT,False,—,夾頭或筒夾種類
+tool_setups,clamping_torque_nm,"NUMERIC(10,3)",False,N·m,實際夾持扭矩
+tool_setups,runout_measurement_method,TEXT,False,—,刀具偏擺量測方法
+microphones,microphone_id,UUID,True,—,麥克風唯一識別碼
+microphones,microphone_code,TEXT,True,—,麥克風代碼，例如 MIC-A001
+microphones,manufacturer,TEXT,False,—,麥克風製造商
+microphones,model,TEXT,False,—,麥克風型號
+microphones,serial_no,TEXT,False,—,實體設備序號
+microphones,microphone_type,TEXT,False,—,麥克風技術類型，例如電容式、MEMS
+microphones,frequency_min_hz,"NUMERIC(12,2)",False,Hz,製造商標稱頻率響應下限
+microphones,frequency_max_hz,"NUMERIC(12,2)",False,Hz,製造商標稱頻率響應上限
+microphones,nominal_sensitivity,"NUMERIC(14,6)",False,—,標稱靈敏度數值，需搭配單位
+microphones,sensitivity_unit,TEXT,False,—,標稱靈敏度單位，例如 mV/Pa
+microphones,is_active,BOOLEAN,True,—,麥克風是否可供使用
+microphones,notes,TEXT,False,—,麥克風規格備註
+microphones,polar_pattern,TEXT,False,—,麥克風指向性
+microphones,connector_type,TEXT,False,—,麥克風接頭／供電介面
+microphone_calibrations,calibration_id,UUID,True,—,校正紀錄唯一識別碼
+microphone_calibrations,microphone_id,UUID,True,—,此校正屬於哪一支實體麥克風
+microphone_calibrations,calibrated_at,TIMESTAMPTZ,True,—,實際校正日期時間
+microphone_calibrations,valid_until,TIMESTAMPTZ,False,—,校正有效期限；未提供表示未知而非永久有效
+microphone_calibrations,calibration_method,TEXT,True,—,校正程序／方法，例如聲校正器校正
+microphone_calibrations,sensitivity_value,"NUMERIC(14,6)",False,—,校正後得到的靈敏度數值；不等於必然已換算為聲壓
+microphone_calibrations,sensitivity_unit,TEXT,False,—,校正靈敏度使用的單位
+microphone_calibrations,calibrator_code,TEXT,False,—,使用的校正器代碼
+microphone_calibrations,certificate_uri,TEXT,False,—,校正證書／文件位置
+microphone_calibrations,notes,TEXT,False,—,校正環境、條件或備註
+microphone_calibrations,created_at,TIMESTAMPTZ,True,—,紀錄建檔時間
+microphone_calibrations,calibration_frequency_hz,"NUMERIC(12,3)",False,Hz,本次靈敏度校正使用的參考頻率
+microphone_calibrations,uncertainty_db,"NUMERIC(8,4)",False,dB,校正不確定度
+microphone_calibrations,calibration_environment,JSONB,True,—,校正當下溫濕度等環境資訊 JSON
+recording_sessions,session_id,UUID,True,—,同步錄音 Session 唯一識別碼；三聲道共用
+recording_sessions,created_by,UUID,True,—,建立此 Session 的登入使用者
+recording_sessions,experiment_id,UUID,False,—,所屬實驗群組；舊資料允許留空
+recording_sessions,experiment_condition_id,UUID,False,—,所屬實驗條件組；需與 experiment_id 相符
+recording_sessions,trial_no,INTEGER,False,—,同一條件組中的第幾次重複錄音
+recording_sessions,machine_id,UUID,True,—,本次實際錄製的 CNC
+recording_sessions,material_id,UUID,True,—,本次工件材料類型
+recording_sessions,workpiece_sample_id,UUID,False,—,本次實際工件；需符合 material_id
+recording_sessions,tool_id,UUID,True,—,本次刀具型號
+recording_sessions,tool_setup_id,UUID,False,—,本次實體刀具裝夾；需符合 tool_id 和 machine_id
+recording_sessions,preset_id,UUID,False,—,起始參考的加工範本，可留空
+recording_sessions,capture_device_id,UUID,True,—,三通道音訊設備唯一 ID
+recording_sessions,process_type,TEXT,True,—,本次加工製程
+recording_sessions,spindle_rpm,"NUMERIC(12,2)",False,RPM,本次設定主軸轉速；不是音訊推論或控制器實測值
+recording_sessions,feed_mm_min,"NUMERIC(12,3)",False,mm/min,本次設定進給速度
+recording_sessions,axial_depth_mm,"NUMERIC(10,3)",False,mm,本次設定軸向切深 ap
+recording_sessions,radial_width_mm,"NUMERIC(10,3)",False,mm,本次設定徑向切寬 ae
+recording_sessions,coolant_mode,TEXT,False,—,本次冷卻條件
+recording_sessions,operation_name,TEXT,False,—,實際加工操作名稱
+recording_sessions,nc_program_code,TEXT,False,—,實際使用的 NC 程式編號
+recording_sessions,nc_program_revision,TEXT,False,—,NC 程式版本／修改版次
+recording_sessions,pass_no,INTEGER,False,—,本次加工為第幾刀／第幾個走刀
+recording_sessions,toolpath_type,TEXT,False,—,實際刀具路徑類型
+recording_sessions,cutting_direction,TEXT,False,—,實際切削方向
+recording_sessions,feed_per_tooth_mm,"NUMERIC(12,6)",False,mm/tooth,本次每齒進給；若自動計算要在快照標註衍生來源
+recording_sessions,cutting_speed_m_min,"NUMERIC(12,4)",False,m/min,本次切削速度；若自動計算要在快照標註衍生來源
+recording_sessions,recording_notes,TEXT,False,—,現場非判定式觀察備註
+recording_sessions,condition_snapshot,JSONB,True,—,本次錄音條件完整不可變快照；含刀具、工件、版本與來源
+recording_sessions,channel_count,SMALLINT,True,—,同步聲道數；目前固定為 3
+recording_sessions,sample_rate_hz,INTEGER,True,Hz,採樣率；例如 48000 Hz
+recording_sessions,sample_format,TEXT,True,—,原始 PCM 取樣格式：pcm_s16le／pcm_s24le
+recording_sessions,target_duration_ms,INTEGER,False,ms,計畫錄音長度
+recording_sessions,capture_clock_id,TEXT,False,—,由錄音主機回報的共同採樣時鐘識別碼
+recording_sessions,status,TEXT,True,—,Session 狀態：prepared／recording／finalizing／completed／interrupted／failed
+recording_sessions,started_at,TIMESTAMPTZ,False,—,實際錄音啟動時間；供稽核，非聲源對齊基準
+recording_sessions,finished_at,TIMESTAMPTZ,False,—,錄音結束時間；供稽核
+recording_sessions,total_frames,BIGINT,False,frame,總採樣影格數；每個 frame 含三路 sample
+recording_sessions,error_message,TEXT,False,—,錄音失敗或中斷的錯誤資訊
+recording_sessions,created_at,TIMESTAMPTZ,True,—,Session 建立時間
+recording_sessions,session_code,TEXT,False,—,人類可讀的錄音編號，可不填由前端顯示 UUID
+recording_sessions,operator_user_id,UUID,False,—,當次操作 CNC 加工的人員 ID，可與錄音建立者不同
+recording_sessions,workpiece_setup_id,UUID,False,—,本次工件實際夾持記錄 ID
+recording_sessions,environment_temperature_c,"NUMERIC(7,3)",False,°C,錄音環境溫度
+recording_sessions,environment_humidity_pct,"NUMERIC(6,3)",False,%,錄音環境相對濕度
+recording_sessions,background_noise_note,TEXT,False,—,附近其他機台、抽風或人聲等背景噪音來源備註
+recording_sessions,machine_door_state,TEXT,False,—,錄音時 CNC 機門／外罩狀態
+recording_sessions,coolant_flow_l_min,"NUMERIC(10,3)",False,min,錄音時冷卻液流量
+recording_sessions,recording_host_software_version,TEXT,False,—,該次使用的錄音主機軟體版本快照
+recording_sessions,host_capture_recording_id,TEXT,False,—,錄音主機內部的工作序號，利於重連對帳
+recording_sessions,device_lock_expires_at,TIMESTAMPTZ,False,—,錄音設備佔用租約到期時間（逾時需由後端解除鎖定）
+recording_sessions,recording_settings,JSONB,True,—,本次錄音緩衝、通道順序、時鐘等額外設定 JSON
+recording_channels,session_id,UUID,True,—,所屬同步錄音 Session
+recording_channels,channel_no,SMALLINT,True,—,硬體聲道位置 1、2、3
+recording_channels,source_label,CHAR(1),True,—,三路聲源代號：A、B、C
+recording_channels,microphone_code,TEXT,True,—,本次麥克風可讀代碼快照
+recording_channels,microphone_id,UUID,True,—,對應的實體麥克風主檔
+recording_channels,calibration_id,UUID,False,—,此次錄音採用的校正版本；需屬於同一麥克風
+recording_channels,mount_position,TEXT,False,—,麥克風位置文字敘述，例如主軸前方
+recording_channels,coordinate_frame,TEXT,True,—,三維座標基準：工件中心／主軸中心／機台原點／自訂
+recording_channels,position_x_mm,"NUMERIC(12,3)",False,mm,相對基準原點的 X 座標
+recording_channels,position_y_mm,"NUMERIC(12,3)",False,mm,相對基準原點的 Y 座標
+recording_channels,position_z_mm,"NUMERIC(12,3)",False,mm,相對基準原點的 Z 座標
+recording_channels,orientation_yaw_deg,"NUMERIC(8,3)",False,°,麥克風收音軸的水平朝向角
+recording_channels,orientation_pitch_deg,"NUMERIC(8,3)",False,°,麥克風收音軸的仰俯角
+recording_channels,mounting_method,TEXT,False,—,麥克風固定方式，例如三腳架、磁座
+recording_channels,mic_distance_mm,"NUMERIC(10,2)",False,mm,麥克風至定義的目標點的實測距離
+recording_channels,gain_db,"NUMERIC(8,3)",False,dB,錄音通道增益設定值
+recording_channels,channel_delay_samples,INTEGER,True,sample,已知硬體通道延遲校正量，單位為 sample
+recording_channels,cable_code,TEXT,False,—,收音訊號線／轉接線編號
+recording_channels,position_measurement_method,TEXT,False,—,量測 X/Y/Z 位置的方式
+recording_channels,acoustic_windscreen_used,BOOLEAN,False,—,是否使用麥克風防風罩
+recording_channels,microphone_power_mode,TEXT,False,—,麥克風供電方式（48V／Plug-in／其他）
+recording_channels,channel_polarity_inverted,BOOLEAN,True,—,該通道是否設定極性反相
+audio_chunks,session_id,UUID,True,—,分段屬於哪次同步錄音
+audio_chunks,chunk_index,INTEGER,True,—,分段序號，從 0 開始
+audio_chunks,first_frame,BIGINT,True,frame,此分段第一個同步 frame 的絕對位置
+audio_chunks,frame_count,INTEGER,True,frame,此分段包含的 frame 數
+audio_chunks,sample_format,TEXT,True,—,音訊 PCM 位元格式
+audio_chunks,channel_count,SMALLINT,True,—,此分段包含的聲道數，固定 3
+audio_chunks,pcm_data,BYTEA,True,—,三聲道交錯 PCM 二進位內容；BYTEA
+audio_chunks,sha256_hex,CHAR(64),True,—,該音訊分段內容的 SHA-256 雜湊
+audio_chunks,received_at,TIMESTAMPTZ,True,—,伺服器收到分段的時間；不是採樣同步時間
+audio_chunks,captured_at_host,TIMESTAMPTZ,False,—,錄音主機回報該段起始時間（診斷用，不作同步基準）
+audio_chunks,first_frame_monotonic_ns,BIGINT,False,ns,錄音主機單調時鐘時間戳（診斷用；同步仍以 frame index 為準）
+audio_assets,asset_id,UUID,True,—,封存檔案的唯一 ID
+audio_assets,session_id,UUID,True,—,所屬同步錄音；本版每個 Session 一份原始封存檔
+audio_assets,storage_uri,TEXT,True,—,WAV／FLAC 原始音檔的私有儲存位置
+audio_assets,container_format,TEXT,True,—,原始封裝格式：wav／flac
+audio_assets,channel_count,SMALLINT,True,—,音檔聲道數，固定 3
+audio_assets,sample_rate_hz,INTEGER,True,Hz,音檔採樣率
+audio_assets,total_frames,BIGINT,True,frame,音檔總 frame 數
+audio_assets,file_size_bytes,BIGINT,True,bytes,音檔大小
+audio_assets,sha256_hex,CHAR(64),True,—,整份封存音檔的 SHA-256
+audio_assets,archived_at,TIMESTAMPTZ,True,—,音檔確認封存時間
+audio_assets,sample_format,TEXT,False,—,封存音訊的 PCM 位元格式
+audio_assets,storage_state,TEXT,True,—,檔案封存及驗證狀態
+audio_assets,immutable_raw,BOOLEAN,True,—,標示為不可改寫的原始音檔
+audio_quality_checks,quality_check_id,UUID,True,—,品質檢查唯一 ID
+audio_quality_checks,session_id,UUID,True,—,受檢的同步錄音
+audio_quality_checks,checker_version,TEXT,True,—,品質檢查程式版本
+audio_quality_checks,checked_at,TIMESTAMPTZ,True,—,品質檢查執行時間
+audio_quality_checks,channel_mapping_ok,BOOLEAN,True,—,是否確認 A/B/C 與硬體輸入通道對應正確
+audio_quality_checks,common_clock_verified,BOOLEAN,True,—,錄音設備回報或測試確認三通道共用時鐘
+audio_quality_checks,missing_frames,BIGINT,True,frame,檢查發現的缺失 frame 數
+audio_quality_checks,clipping_samples_by_channel,JSONB,True,samples,"各通道削波 sample 數 JSON，例如 {A:0,B:1,C:0}"
+audio_quality_checks,quality_status,TEXT,True,—,品質檢查結果：pass／warning／fail
+audio_quality_checks,details,JSONB,True,—,檢查細節 JSON，例如雜湊與時序檢查結果
+audio_quality_checks,notes,TEXT,False,—,人工檢查備註
+audio_quality_checks,frame_sequence_ok,BOOLEAN,False,—,音訊分段 sample/frame 序列是否連續
+audio_quality_checks,sample_rate_verified,BOOLEAN,False,—,採樣率是否與錄音 Session 一致
+audio_quality_checks,corrupt_chunk_count,INTEGER,True,—,雜湊或長度驗證失敗的分段數
+audio_quality_checks,dropped_chunk_count,INTEGER,True,—,遺失／未收到的音訊分段數
+audio_quality_checks,per_channel_noise_floor_dbfs,JSONB,False,dBFS,各通道底噪估計值 JSON，單位 dBFS
+machining_parameter_events,event_id,BIGINT,True,—,事件流水編號
+machining_parameter_events,session_id,UUID,True,—,屬於哪一次錄音
+machining_parameter_events,at_frame,BIGINT,True,frame,變動對應的錄音採樣 frame；不能以 HTTP 抵達時間取代
+machining_parameter_events,parameter_name,TEXT,True,—,變動的加工參數名稱，例如 actual_spindle_rpm
+machining_parameter_events,parameter_value,JSONB,True,—,事件值，以 JSON 表達數字或物件
+machining_parameter_events,parameter_unit,TEXT,False,—,數值單位，例如 RPM／mm/min
+machining_parameter_events,source_reference,TEXT,False,—,機台控制器／感測器的來源識別碼
+machining_parameter_events,source,TEXT,True,—,來源：manual／machine_controller／sensor
+machining_parameter_events,noted_at,TIMESTAMPTZ,True,—,事件被系統登錄的時間
+machining_parameter_events,controller_recorded_at,TIMESTAMPTZ,False,—,CNC 控制器回報該參數事件的時間
+analysis_runs,analysis_id,UUID,True,—,分析執行唯一 ID
+analysis_runs,session_id,UUID,True,—,分析來源錄音
+analysis_runs,analysis_type,TEXT,True,—,分析類別：preprocess／features／fusion／inference
+analysis_runs,method_name,TEXT,True,—,使用的分析方法，例如 butterworth_bandpass
+analysis_runs,pipeline_version,TEXT,True,—,前處理或分析程式版本
+analysis_runs,parameters,JSONB,True,—,分析設定 JSON，包括濾波頻帶／FFT 視窗等
+analysis_runs,result_uri,TEXT,False,—,衍生音檔、圖像或模型輸出位置
+analysis_runs,status,TEXT,True,—,工作狀態：queued／running／completed／failed
+analysis_runs,error_message,TEXT,False,—,分析失敗原因
+analysis_runs,created_at,TIMESTAMPTZ,True,—,工作建立時間
+analysis_runs,completed_at,TIMESTAMPTZ,False,—,工作完成時間
+analysis_runs,input_asset_id,UUID,False,—,本次分析所用的原始三通道音檔 ID
+analysis_runs,code_commit,TEXT,False,—,分析程式 Git commit 版本
+analysis_runs,processing_started_at,TIMESTAMPTZ,False,—,分析實際啟動時間
+analysis_runs,analysis_owner_user_id,UUID,False,—,建立或啟動分析的人員 ID
+analysis_runs,output_unit_spec,JSONB,True,—,輸出特徵欄位單位與校正方式 JSON
+channel_features,analysis_id,UUID,True,—,特徵所屬分析執行
+channel_features,session_id,UUID,True,—,來源錄音；與 analysis_id 配對核對
+channel_features,channel_no,SMALLINT,True,—,來源聲道 1、2、3
+channel_features,window_index,INTEGER,True,—,特徵分析的第幾個視窗
+channel_features,start_frame,BIGINT,True,frame,該視窗起始 frame
+channel_features,frame_count,INTEGER,True,frame,視窗樣本 frame 數
+channel_features,rms,"NUMERIC(16,8)",False,—,均方根振幅；未校正不得視為 dB SPL
+channel_features,peak,"NUMERIC(16,8)",False,—,峰值數位振幅；未校正不得視為聲壓
+channel_features,dominant_freq_hz,"NUMERIC(12,4)",False,Hz,該視窗主峰頻率
+channel_features,spectral_centroid_hz,"NUMERIC(12,4)",False,Hz,頻譜重心頻率
+channel_features,band_energy,JSONB,False,—,各頻帶能量 JSON，須在分析參數註明頻帶定義
+channel_features,mfcc,JSONB,False,—,MFCC 向量 JSON，須記錄模型與參數版本
+channel_features,rms_unit,TEXT,False,—,RMS 的單位，例如 FS／Pa（有校正才可用 Pa）
+channel_features,peak_unit,TEXT,False,—,Peak 的單位
+channel_features,crest_factor,"NUMERIC(12,5)",False,—,峰值與 RMS 比值
+channel_features,spectral_flatness,"NUMERIC(12,6)",False,—,頻譜平坦度
+channel_features,zero_crossing_rate,"NUMERIC(12,6)",False,—,過零率
+channel_features,extra_features,JSONB,True,—,新增特徵的可擴充 JSON
+fusion_results,analysis_id,UUID,True,—,三聲源融合分析執行
+fusion_results,session_id,UUID,True,—,來源同步錄音
+fusion_results,window_index,INTEGER,True,—,融合輸出的視窗序號
+fusion_results,start_frame,BIGINT,True,frame,融合視窗起始 frame
+fusion_results,frame_count,INTEGER,True,frame,融合視窗長度
+fusion_results,fusion_method,TEXT,True,—,融合策略，例如 feature_concat／weighted_feature
+fusion_results,fused_features,JSONB,True,—,三聲源組合後的特徵 JSON
+fusion_results,alignment_method,TEXT,False,—,三聲道特徵對齊方式
+fusion_results,fusion_parameters,JSONB,True,—,特徵融合的方法參數 JSON
+fusion_results,fusion_quality_flags,JSONB,True,—,融合資料品質旗標 JSON
+model_predictions,prediction_id,UUID,True,—,推論結果唯一 ID
+model_predictions,analysis_id,UUID,True,—,使用哪次模型分析執行
+model_predictions,session_id,UUID,True,—,來源錄音
+model_predictions,model_name,TEXT,True,—,模型名稱
+model_predictions,model_version,TEXT,True,—,模型版本
+model_predictions,predicted_label,TEXT,False,—,模型預測的類別文字，非驗證真值
+model_predictions,anomaly_score,"NUMERIC(12,6)",False,—,模型輸出的異常分數
+model_predictions,threshold,"NUMERIC(12,6)",False,—,該次判定使用的分數門檻
+model_predictions,output,JSONB,True,—,其他模型輸出 JSON，例如各類機率
+model_predictions,predicted_at,TIMESTAMPTZ,True,—,模型推論時間
+model_predictions,model_artifact_uri,TEXT,False,—,模型權重或檔案索引
+model_predictions,confidence,"NUMERIC(8,6)",False,—,模型置信度（若模型有定義）
+model_predictions,start_frame,BIGINT,False,frame,此預測所對應音訊視窗的起點
+model_predictions,frame_count,INTEGER,False,frame,此預測所對應視窗的 frame 數
+verified_labels,label_id,UUID,True,—,驗證標籤唯一 ID
+verified_labels,session_id,UUID,True,—,被驗證的錄音
+verified_labels,verification_method,TEXT,True,—,標籤驗證方法，例如量測、檢驗或加工紀錄
+verified_labels,verified_label,TEXT,True,—,經獨立驗證的實際標籤
+verified_labels,evidence_uri,TEXT,False,—,驗證報告、量測紀錄或影像的儲存位置
+verified_labels,verified_by,UUID,False,—,執行驗證的人員
+verified_labels,verified_at,TIMESTAMPTZ,True,—,驗證紀錄完成時間
+verified_labels,label_scope,TEXT,True,—,檢驗標籤適用整段 Session 或部分視窗
+verified_labels,start_frame,BIGINT,False,frame,驗證視窗第一個取樣 frame
+verified_labels,frame_count,INTEGER,False,frame,驗證標籤涵蓋的 frame 數
+verified_labels,verification_notes,TEXT,False,—,實測／檢驗依據或備註
+workpiece_setups,workpiece_setup_id,UUID,True,—,工件實際夾持記錄 UUID
+workpiece_setups,setup_code,TEXT,True,—,夾持識別代碼，不重複
+workpiece_setups,workpiece_sample_id,UUID,True,—,本次被夾持的實體工件
+workpiece_setups,machine_id,UUID,True,—,本次夾持所在的 CNC 機台
+workpiece_setups,fixture_type,TEXT,True,—,夾具類型（例如虎鉗、治具）
+workpiece_setups,fixture_code,TEXT,False,—,夾具實體編號
+workpiece_setups,clamping_method,TEXT,False,—,固定／夾緊方法
+workpiece_setups,estimated_clamping_force_n,"NUMERIC(12,3)",False,N,夾持力量（若可量測，註明估算）
+workpiece_setups,workpiece_orientation,TEXT,False,—,工件裝夾方向／基準面
+workpiece_setups,fixture_notes,TEXT,False,—,本次裝夾備註
+workpiece_setups,assembled_by,UUID,False,—,工件裝夾操作者 ID
+workpiece_setups,assembled_at,TIMESTAMPTZ,True,—,夾持安裝時間
+workpiece_setups,is_active,BOOLEAN,True,—,該裝夾是否仍有效
+recording_control_events,control_event_id,BIGINT,True,—,錄音控制事件流水號
+recording_control_events,session_id,UUID,True,—,對應錄音 Session
+recording_control_events,command_id,UUID,True,—,去重用的指令 UUID，網路重傳不得重複執行
+recording_control_events,command,TEXT,True,—,錄音控制指令（prepare、start、stop 等）
+recording_control_events,issued_by,UUID,False,—,發出指令的使用者 ID
+recording_control_events,issued_at,TIMESTAMPTZ,True,—,指令發送時間
+recording_control_events,acknowledged_at,TIMESTAMPTZ,False,—,錄音主機確認時間
+recording_control_events,command_status,TEXT,True,—,控制指令執行狀態
+recording_control_events,recorder_response,JSONB,True,—,錄音主機回應 JSON，例如時鐘 ID／錯誤碼
+recording_control_events,error_message,TEXT,False,—,失敗原因
+machine_telemetry_samples,telemetry_id,BIGINT,True,—,CNC 控制器量測紀錄流水號
+machine_telemetry_samples,session_id,UUID,True,—,對應錄音 Session
+machine_telemetry_samples,audio_frame,BIGINT,True,frame,對齊三通道音訊的 sample/frame 位置
+machine_telemetry_samples,measured_at,TIMESTAMPTZ,False,—,量測裝置回報時間
+machine_telemetry_samples,actual_spindle_rpm,"NUMERIC(12,3)",False,RPM,實際主軸轉速
+machine_telemetry_samples,actual_feed_mm_min,"NUMERIC(12,4)",False,mm/min,實際進給速度
+machine_telemetry_samples,spindle_load_pct,"NUMERIC(7,3)",False,%,主軸負載百分比
+machine_telemetry_samples,spindle_power_kw,"NUMERIC(12,4)",False,kW,主軸功率
+machine_telemetry_samples,controller_state,TEXT,False,—,CNC 控制器工作狀態（非聲學 AI 判定）
+machine_telemetry_samples,extra_measurements,JSONB,True,—,可擴充 CNC 訊號 JSON
+machine_telemetry_samples,measured_source,TEXT,True,—,數值來源，例如 CNC 控制器
+machine_telemetry_samples,created_at,TIMESTAMPTZ,True,—,該筆量測資料寫入時間
+analysis_artifacts,artifact_id,UUID,True,—,衍生分析檔案唯一 ID
+analysis_artifacts,analysis_id,UUID,True,—,產生此檔案的分析 Run
+analysis_artifacts,session_id,UUID,True,—,所屬錄音 Session
+analysis_artifacts,channel_no,SMALLINT,False,—,若屬單一聲道則填 A/B/C 對應數字；跨聲道則留空
+analysis_artifacts,artifact_kind,TEXT,True,—,檔案種類：濾波音訊、FFT、STFT、圖像預覽等
+analysis_artifacts,storage_uri,TEXT,True,—,衍生檔案儲存位置，不覆蓋原始音檔
+analysis_artifacts,mime_type,TEXT,False,—,檔案內容類型
+analysis_artifacts,shape_json,JSONB,False,—,矩陣長寬、軸單位、窗長等 JSON
+analysis_artifacts,sha256_hex,CHAR(64),False,—,衍生檔案雜湊值
+analysis_artifacts,produced_at,TIMESTAMPTZ,True,—,檔案生成時間
