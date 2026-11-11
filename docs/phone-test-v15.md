@@ -14,6 +14,7 @@ $db = '<你的 PostgreSQL 開發連線字串>'
 psql -X -v ON_ERROR_STOP=1 -d $db -f backend/migrations/001_mobile_capture.sql
 psql -X -v ON_ERROR_STOP=1 -d $db -f backend/migrations/002_room_lifecycle.sql
 psql -X -v ON_ERROR_STOP=1 -d $db -f backend/migrations/003_recording_metadata.sql
+psql -X -v ON_ERROR_STOP=1 -d $db -f backend/migrations/004_analysis_jobs.sql
 npm.cmd --prefix frontend run build
 ./scripts/run-backend.ps1 -DatabaseUrl $db -Port 8015
 ```

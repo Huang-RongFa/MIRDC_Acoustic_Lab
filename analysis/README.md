@@ -10,7 +10,9 @@
 | `analyze_multi_mic.py` | 主程式：2 或 3 軌的同步、相位、背景移除，輸出圖與 `summary.json` |
 | `sync_chirp.py` | 同步嗶聲規格與偵測；常數必須與 `frontend/src/syncChirp.ts` 相同 |
 | `tests/test_synthetic.py` | 合成三麥克風資料（已知偏移、25 ppm 時脈漂移、嗶聲）驗證整條流程 |
-| `requirements.txt` | numpy、scipy、soundfile、matplotlib |
+| `worker.py` | 地端分析 worker：從 `mobile_capture.analysis_jobs` 認領工作、校驗並解碼音段、跑本模型、結果寫回資料表（見 [`docs/analysis-worker.md`](../docs/analysis-worker.md)） |
+| `tests/test_worker.py` | worker 的資料庫整合測試（每個測試建新資料庫，用最小權限帳號跑） |
+| `requirements.txt` | numpy、scipy、soundfile、matplotlib、psycopg（worker 用）、imageio-ffmpeg（沒有系統 ffmpeg 時） |
 
 ## 用法
 

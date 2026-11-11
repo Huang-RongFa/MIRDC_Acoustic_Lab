@@ -2,3 +2,5 @@ numpy>=1.24
 scipy>=1.10
 soundfile>=0.12
 matplotlib>=3.7
+psycopg>=3.2
+imageio-ffmpeg>=0.4  # 地端沒有系統 ffmpeg 時使用
