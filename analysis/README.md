@@ -11,6 +11,8 @@
 | `sync_chirp.py` | 同步嗶聲規格與偵測；常數必須與 `frontend/src/syncChirp.ts` 相同 |
 | `tests/test_synthetic.py` | 合成三麥克風資料（已知偏移、25 ppm 時脈漂移、嗶聲）驗證整條流程 |
 | `worker.py` | 地端分析 worker：從 `mobile_capture.analysis_jobs` 認領工作、校驗並解碼音段、跑本模型、結果寫回資料表（見 [`docs/analysis-worker.md`](../docs/analysis-worker.md)） |
+| `offline.py` | 不經過網站資料庫的離線分析：`chirp` 產生同步嗶聲 wav；`run` 把 2–3 個任意格式的錄音檔（webm、m4a、wav）解碼成 48 kHz 單聲道後跑本模型，印出對齊判定（與 worker 同一套標準）並寫 `offline_report.json` |
+| `tests/test_offline.py` | 離線分析測試：嗶聲檔可被偵測、混合格式（webm／m4a／44.1 kHz wav）對齊通過、無嗶聲時改用包絡仍通過、拒絕把輸出寫進儲存庫 |
 | `tests/test_worker.py` | worker 的資料庫整合測試（每個測試建新資料庫，用最小權限帳號跑） |
 | `requirements.txt` | numpy、scipy、soundfile、matplotlib、psycopg（worker 用）、imageio-ffmpeg（沒有系統 ffmpeg 時） |
 
@@ -28,6 +30,14 @@ python -X utf8 analysis/tests/test_synthetic.py
 
 `--c` 可省略（兩支手機時）。A 一律是主控手機。
 
+或用離線工具一次完成解碼與分析（輸出資料夾必須在儲存庫外）：
+
+```powershell
+python -X utf8 analysis/offline.py chirp --out D:\cnc_offline\sync_chirp.wav
+python -X utf8 analysis/offline.py run --a A.webm --b B.webm --c C.webm --out D:\cnc_offline\run1 --note "機台、轉速、麥克風位置"
+python -X utf8 analysis/tests/test_offline.py
+```
+
 ## 做了什麼
 
 1. **同步**（B、C 對齊到 A）
@@ -36,7 +46,8 @@ python -X utf8 analysis/tests/test_synthetic.py
    - 漂移：偏移對時間做直線擬合。不同手機的取樣時脈差約 20 ppm，37 秒就累積約 35 取樣點，所以要依直線平移加重取樣，不能只做固定偏移。
    - 驗證：對齊後再量一次，`after_alignment` 的偏移與漂移應接近 0。
 2. **相位**（每一對 A–B、A–C、B–C）：相干度 >= 0.5 的頻帶才有相位值，其餘只標記無效。
-3. **處理痕跡**：逐 0.5 秒軌間位準差。若它跟響度一起變（`corr_with_level` 高），就懷疑手機做了自動增益。
+3. **處理痕跡**：逐 0.5 秒軌間位準差與它跟整體響度的相關（`corr_with_level`）。
+   注意：錄音中有停機或安靜段時，各軌只剩各自的底噪，位準差本來就會跟著響度變；固定增益的合成資料相關係數也有 0.97–0.99。只有機台穩定運轉的片段，相關高才代表可能有自動增益。
 4. **背景移除**（只在特徵層；原始音檔不動）：各軌平均 → 依軌間短時相干度給增益（扣除錯開 1 秒對照組的偏差）→ 扣除穩態背景地板。
 
 ## 輸出（`--out` 資料夾）
