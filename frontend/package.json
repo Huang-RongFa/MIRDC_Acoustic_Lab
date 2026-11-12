@@ -7,14 +7,15 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "build:pages": "tsc --noEmit && vite build --mode pages --base /MIRDC_Acoustic_Lab/ --outDir ../pages-site",
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:unit": "node --test \"tests-unit/*.test.ts\""
   },
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "overrides": {
-    "rollup": "npm:@rollup/wasm-node@4.68.0"
+    "rollup": "$rollup"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
