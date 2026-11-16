@@ -269,6 +269,24 @@ def test_recorder_file_checks():
         assert any("聲道數是 1" in x for x in pr), pr
 
 
+def test_windows_effects_detection():
+    """2026-11-16 實機：Windows 替 EARS 掛了語音清晰度（VocaEffectPack），左右相同的穩定噪音播了 1 秒就被壓成無聲。"""
+    pack = "{9e6136e0-57ab-4949-b57a-3627be142855},100"
+    ears_fx = {pack: "SWD\\DRIVERENUM\\{96bedf2c-18cb-4a15-b821-5e95ed0fea61}#VocaEffectPack&1&226863a3&0"}
+    assert record_usb.effects_status(ears_fx, {}) == (True, ["VocaEffectPack"])
+    # 使用者把「音訊增強」關掉之後：效果包還登記著，但不再作用
+    assert record_usb.effects_status({**ears_fx, record_usb._FX_DISABLE: 1}, {})[0] is False
+    assert record_usb.effects_status(ears_fx, {record_usb._FX_DISABLE: 1})[0] is False
+    assert record_usb.effects_status({**ears_fx, record_usb._FX_DISABLE: 0}, {})[0] is True
+    # 沒有登記任何效果
+    assert record_usb.effects_status({}, {}) == (False, [])
+    # 只有識別碼、沒有看得懂的名稱：回報數量；名稱最多列 4 個、不重複
+    active, effects = record_usb.effects_status({"{a},1": "{4BD94DA9}", "{a},2": 0, "{a},3": b"xx"}, {})
+    assert active is True and effects == ["3 項效果設定"], effects
+    many = {f"{{k}},{i}": f"Effect {i % 6}" for i in range(12)}
+    assert record_usb.effects_status(many, {})[1] == ["Effect 0", "Effect 1", "Effect 2", "Effect 3"]
+
+
 def test_recorder_refuses_repository_output():
     try:
         record_usb.cmd_record(type("A", (), {"out": str(offline.REPO / "analysis" / "rec_should_not_exist"),

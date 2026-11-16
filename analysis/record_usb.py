@@ -80,6 +80,76 @@ def input_spec(name, ids):
     return name
 
 
+_FX_DISABLE = "{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5"      # 值為 1＝這個裝置的「音訊增強」已關閉
+_PROP_DESC = "{a45c254e-df1c-4efd-8020-67d146a850e0},2"
+_PROP_IFACE = "{b3f8fa53-0004-438e-9003-51a46e139bfc},6"
+_CAPTURE_KEY = "SOFTWARE" + chr(92) + chr(92).join(["Microsoft", "Windows", "CurrentVersion", "MMDevices", "Audio", "Capture"])
+
+
+def effects_status(fx_values, prop_values):
+    """由登錄檔的值判斷 Windows 會不會改動這個錄音裝置的聲音。回傳 (會改動, 效果名稱清單)。
+    fx_values：FxProperties 機碼的值；prop_values：Properties 機碼的值。
+    Windows 11 預設會替 USB 麥克風掛上「語音清晰度」（VocaEffectPack：降噪＋回音消除），
+    它會把穩定的噪音（機台運轉聲正是這種聲音）壓到完全無聲。2026-11-16 在 EARS 上實際發生。"""
+    disabled = fx_values.get(_FX_DISABLE) == 1 or prop_values.get(_FX_DISABLE) == 1
+    count, labels = 0, []
+    for name, value in fx_values.items():
+        if name == _FX_DISABLE:
+            continue
+        count += 1
+        text = value if isinstance(value, str) else ""
+        label = text.split("#")[-1].split("&")[0] if "#" in text else text
+        if label and not label.startswith("{") and chr(92) not in label and label not in labels:
+            labels.append(label)                    # 只留看得懂的名稱；純識別碼不列
+    effects = labels[:4] or ([f"{count} 項效果設定"] if count else [])
+    return (count > 0 and not disabled), effects
+
+
+def capture_effects(name):
+    """查 Windows 是否對名稱為 name 的錄音裝置啟用音訊效果。查不到這個裝置時回傳 None。只讀取，不更改。"""
+    if sys.platform != "win32":
+        return None
+    import winreg
+
+    def values(key):
+        out, i = {}, 0
+        while True:
+            try:
+                n, v, _ = winreg.EnumValue(key, i)
+            except OSError:
+                return out
+            out[n] = v
+            i += 1
+
+    try:
+        root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _CAPTURE_KEY)
+    except OSError:
+        return None
+    i = 0
+    while True:
+        try:
+            sub = winreg.EnumKey(root, i)
+        except OSError:
+            return None
+        i += 1
+        try:
+            dev = winreg.OpenKey(root, sub)
+            if values(dev).get("DeviceState") != 1:
+                continue
+            props = values(winreg.OpenKey(dev, "Properties"))
+        except OSError:
+            continue
+        full = f"{props.get(_PROP_DESC, '')} ({props.get(_PROP_IFACE, '')})"
+        if full != name and full[:31] != name[:31]:      # 舊式錄音介面會把名稱截到 31 個字
+            continue
+        try:
+            fx = values(winreg.OpenKey(dev, "FxProperties"))
+        except OSError:
+            fx = {}
+        active, effects = effects_status(fx, props)
+        return {"device": full, "active": active, "effects": effects}
+
+
 def pick(devices, needle, role):
     """用名稱片段（不分大小寫）選裝置；必須剛好一台符合。"""
     hits = [d for d in devices if needle.lower() in d.lower()]
@@ -169,6 +239,15 @@ def cmd_record(args):
     inputs = [(input_spec(stereo, ids), 2, out / "stereo.wav")] + (
         [(input_spec(mono, ids), 1, out / "mono.wav")] if mono else [])
     ffmpeg = ffmpeg_exe()
+    fx_problems, fx_info = [], {}
+    for n in names:
+        st = capture_effects(n)
+        fx_info[n] = st
+        if st and st["active"]:
+            fx_problems.append(f"Windows 對「{n}」啟用了音訊效果（{'、'.join(st['effects'])}），會改變錄到的聲音，"
+                               "穩定的噪音可能被壓到無聲。請到「設定 → 系統 → 音效 → 輸入 → 這個裝置」把「音訊增強」關閉")
+    for x in fx_problems:
+        print(f"警告：{x}")
     print(f"開始錄音 {args.seconds:g} 秒（Ctrl+C 可提早結束）：{stereo}" + (f" ＋ {mono}" if mono else ""))
     used_bits, tried = None, []
     for bits in ([args.bits, 16] if args.bits != 16 else [16]):
@@ -181,14 +260,14 @@ def cmd_record(args):
         print(f"  {bits} 位元開啟失敗，改試下一種格式")
     if used_bits is None:
         raise SystemExit("錄音失敗。ffmpeg 訊息：\n" + tried[-1]["stderr_tail"])
-    files, problems = [], []
+    files, problems = [], list(fx_problems)
     for name, (_, channels, path) in zip(names, inputs):
         st, pr = check_file(path, channels, args.seconds)
         st["device"] = name
         files.append(st)
         problems += [f"{path.name}：{x}" for x in pr]
     meta = {"started_at_utc": started, "requested_seconds": args.seconds, "sample_rate": SR, "bits": used_bits,
-            "files": files, "problems": problems, "note": args.note,
+            "files": files, "problems": problems, "note": args.note, "windows_effects": fx_info,
             "attempts": [{"bits": t["bits"], "returncode": t["returncode"]} for t in tried]}
     with open(out / "recording.json", "w", encoding="utf-8") as fh:
         json.dump(meta, fh, ensure_ascii=False, indent=2)
