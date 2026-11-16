@@ -144,11 +144,14 @@ def report(J):
 def print_report(R):
     v = R["alignment"]
     print("== 對齊判定 ==")
-    if v["verified"]:
+    same = v.get("same_clock_pairs") or []
+    if v["verified"] and len(same) == len(v["channels"]) - 1:
+        print(f"  {'、'.join(v['channels'])} 同一時鐘，硬體同步，不需要對齊（沒有對齊殘差可驗證）")
+    elif v["verified"]:
         print(f"  已驗證：{'、'.join(v['channels'])} 共 {len(v['channels'])} 軌，殘餘偏移 ≤ "
               f"{v['criteria']['max_residual_samples']:g} 取樣點、殘餘漂移 ≤ {v['criteria']['max_residual_ppm']:g} ppm")
-        if v.get("same_clock_pairs"):
-            print(f"  其中 {'、'.join(v['same_clock_pairs'])} 是同一時鐘，硬體同步，不經過對齊")
+        if same:
+            print(f"  其中 {'、'.join(same)} 是同一時鐘，硬體同步，不經過對齊")
     else:
         print("  未通過，同步與相位數字不可使用：" + "；".join(f"{k} {m}" for k, m in v["failed_pairs"].items()))
     print("== 各軌 ==")
@@ -157,6 +160,10 @@ def print_report(R):
     print(f"  編碼截止頻率（Hz）：{R['codec_cutoff_hz']}")
     for name, p in R["pairs"].items():
         print(f"== {name} ==")
+        if p.get("same_clock") and p["acoustic_tdoa_samples"] is None:
+            print("  同一時鐘，不對齊。聲學到達時間差量不到：兩軌之間沒有夠清楚的共同聲源"
+                  "（環境音太分散，或聲源太小聲）。請用一個明確的聲源再錄一次。")
+            continue
         if p.get("same_clock"):
             print(f"  同一時鐘，不對齊。聲學到達時間差 {p['acoustic_tdoa_samples']} 取樣點（{p['acoustic_tdoa_us']} µs），"
                   f"5–95% {p['tdoa_spread_p5_p95_samples']}，隨時間趨勢 {p['tdoa_trend_ppm']} ppm（清楚窗 {p['clear_windows']}）")

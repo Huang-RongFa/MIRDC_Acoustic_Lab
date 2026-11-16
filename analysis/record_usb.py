@@ -29,6 +29,7 @@ from offline import ffmpeg_exe, inside_repo  # noqa: E402
 
 SR = 48000
 _AUDIO_LINE = re.compile(r'"(.+)"\s+\(audio\)')
+_ALT_LINE = re.compile(r'Alternative name\s+"(.+)"')
 
 
 def parse_devices(text):
@@ -41,12 +42,42 @@ def parse_devices(text):
     return out
 
 
-def list_devices():
+def parse_device_ids(text):
+    """裝置名稱 → Windows 裝置識別碼（ffmpeg 列在名稱下一行的 Alternative name）。
+    裝置名稱含冒號時（例如 EARS 的「Gain: 24dB」），ffmpeg 會把冒號當成分隔符號而開啟失敗；識別碼沒有冒號。"""
+    ids, last = {}, None
+    for line in text.splitlines():
+        m = _AUDIO_LINE.search(line)
+        if m:
+            last = m.group(1)
+            continue
+        a = _ALT_LINE.search(line)
+        if a and last is not None and last not in ids:
+            ids[last] = a.group(1)
+        if a or "(video)" in line:
+            last = None
+    return ids
+
+
+def _list_raw():
     if sys.platform != "win32":
         raise SystemExit("本程式用 DirectShow，只支援 Windows")
     p = subprocess.run([ffmpeg_exe(), "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
                        capture_output=True, encoding="utf-8", errors="replace", timeout=60)
-    return parse_devices(p.stderr)
+    return p.stderr
+
+
+def list_devices():
+    return parse_devices(_list_raw())
+
+
+def input_spec(name, ids):
+    """給 ffmpeg 的輸入字串：有識別碼就用識別碼；沒有時才用名稱（名稱含冒號會失敗，先明講）。"""
+    if name in ids:
+        return ids[name]
+    if ":" in name:
+        raise SystemExit(f"裝置「{name}」的名稱含冒號，而且查不到它的裝置識別碼，ffmpeg 無法開啟")
+    return name
 
 
 def pick(devices, needle, role):
@@ -60,7 +91,7 @@ def pick(devices, needle, role):
 
 
 def build_cmd(ffmpeg, inputs, seconds, bits, sr=SR):
-    """inputs: [(裝置名稱, 聲道數, 輸出路徑), ...]。同一個 ffmpeg 程序同時開所有輸入。"""
+    """inputs: [(裝置名稱或識別碼, 聲道數, 輸出路徑), ...]。同一個 ffmpeg 程序同時開所有輸入。"""
     codec = {16: "pcm_s16le", 24: "pcm_s24le"}[bits]
     cmd = [ffmpeg, "-hide_banner", "-loglevel", "warning", "-y"]
     for name, channels, _ in inputs:
@@ -127,13 +158,16 @@ def cmd_record(args):
         raise SystemExit("輸出不可放在 Git 儲存庫內，請改到儲存庫外的資料夾")
     if not args.seconds > 0:
         raise SystemExit("--seconds 必須是正數")
-    devices = list_devices()
+    raw = _list_raw()
+    devices, ids = parse_devices(raw), parse_device_ids(raw)
     stereo = pick(devices, args.stereo, "雙聲道")
     mono = pick(devices, args.mono, "單聲道") if args.mono else None
     if mono == stereo:
         raise SystemExit("--stereo 與 --mono 選到同一台裝置，請給更明確的名稱")
     out.mkdir(parents=True, exist_ok=True)
-    inputs = [(stereo, 2, out / "stereo.wav")] + ([(mono, 1, out / "mono.wav")] if mono else [])
+    names = [stereo] + ([mono] if mono else [])
+    inputs = [(input_spec(stereo, ids), 2, out / "stereo.wav")] + (
+        [(input_spec(mono, ids), 1, out / "mono.wav")] if mono else [])
     ffmpeg = ffmpeg_exe()
     print(f"開始錄音 {args.seconds:g} 秒（Ctrl+C 可提早結束）：{stereo}" + (f" ＋ {mono}" if mono else ""))
     used_bits, tried = None, []
@@ -148,7 +182,7 @@ def cmd_record(args):
     if used_bits is None:
         raise SystemExit("錄音失敗。ffmpeg 訊息：\n" + tried[-1]["stderr_tail"])
     files, problems = [], []
-    for name, channels, path in inputs:
+    for name, (_, channels, path) in zip(names, inputs):
         st, pr = check_file(path, channels, args.seconds)
         st["device"] = name
         files.append(st)

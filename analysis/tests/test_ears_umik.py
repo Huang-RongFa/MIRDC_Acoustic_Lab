@@ -198,6 +198,40 @@ Error opening input file dummy.'''
             assert why in str(e) and "Umik-2" in str(e), str(e)
         else:
             raise AssertionError("應該拒絕")
+    # 2026-11-16 實機：EARS 的名稱是「麥克風 (E.A.R.S Gain: 24dB)」，冒號讓 ffmpeg 回報 Malformed dshow input string。
+    # 所以一律改用名稱下一行的裝置識別碼開啟；識別碼沒有冒號。
+    ids = record_usb.parse_device_ids(text)
+    assert ids == {"麥克風排列 (Realtek(R) Audio)": "@device_cm_{33D9A762}\\wave_{E8DB0F06}",
+                   "Line (2- E.A.R.S Gain: 18dB)": "@device_cm_{33D9A762}\\wave_{AAAA}"}, ids
+    spec = record_usb.input_spec("Line (2- E.A.R.S Gain: 18dB)", ids)
+    assert spec == "@device_cm_{33D9A762}\\wave_{AAAA}" and ":" not in spec
+    assert record_usb.input_spec("Microphone (Umik-2)", ids) == "Microphone (Umik-2)"      # 沒有識別碼、名稱沒冒號：用名稱
+    try:
+        record_usb.input_spec("X (Gain: 6dB)", {})
+    except SystemExit as e:
+        assert "冒號" in str(e), e
+    else:
+        raise AssertionError("名稱含冒號又沒有識別碼時應該明確報錯")
+
+
+def test_unmeasurable_same_clock_delay_is_reported_plainly():
+    """2026-11-16 實機：只有室內環境音時量不到到達時間差，報告要明講，不能印出 None 取樣點。"""
+    import contextlib
+    import io
+    R = {"alignment": {"verified": True, "channels": ["A", "B"], "failed_pairs": {}, "same_clock_pairs": ["B_vs_A"],
+                       "criteria": {"max_residual_samples": 2.0, "max_residual_ppm": 5.0}},
+         "durations_s": {"A": 10.0, "B": 10.0}, "chirps_detected_s": {"A": [], "B": []}, "codec_cutoff_hz": {},
+         "pairs": {"B_vs_A": {"same_clock": True, "aligned": False, "acoustic_tdoa_samples": None,
+                              "acoustic_tdoa_us": None, "tdoa_spread_p5_p95_samples": [], "tdoa_trend_ppm": None,
+                              "clear_windows": "None/None", "spacing_m": None, "max_tdoa_samples": None,
+                              "aliasing_hz": None, "tdoa_over_straight_line_limit": None, "warning": "精對齊失敗"}},
+         "level_difference": {}, "phase": {}}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        offline.print_report(R)
+    text = buf.getvalue()
+    assert "量不到" in text and "None 取樣點" not in text, text
+    assert "同一時鐘，硬體同步，不需要對齊" in text and "殘餘偏移" not in text, text
 
 
 def test_recorder_command_opens_both_devices_in_one_process():
