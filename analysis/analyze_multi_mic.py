@@ -23,8 +23,15 @@
    b. 相干度增益：每對短時相干度扣除「錯開 1 秒對照組」的估計偏差後取平均，下限 -20 dB
    c. 穩態背景地板頻譜相減（第 10 百分位）
 
+同一時鐘的聲源（--same-clock，例如同一台 USB 裝置的左右聲道、多通道錄音介面）
+- 與 A 共用取樣時鐘的軌沒有起點差也沒有漂移，所以「不對齊」：量到的 A–該軌時間差就是聲學到達時間差，
+  只記錄、不補償；相位用原始兩軌計算。若把它對齊到 A，會把聲學相位一起抹掉。
+- 給了間距（--spacing B=0.15，公尺）就檢查 |到達時間差| 是否超過 d/c 的物理上限。
+- 背景移除的「各軌平均」另外用朝主聲源對正的副本（只影響第 4 步）。
+
 用法：
   python -X utf8 analyze_multi_mic.py --a A.wav --b B.wav [--c C.wav] --out <dir> [--source-note "..."]
+      [--same-clock B] [--spacing B=0.15] [--temperature-c 20]
 輸入需先解碼成 wav（例如 ffmpeg -i A.webm -ac 1 -ar 48000 A.wav）。
 """
 import argparse
@@ -48,6 +55,9 @@ plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "Microsoft YaHei", "Sim
 plt.rcParams["axes.unicode_minus"] = False
 COH_MIN = 0.5
 PHAT_MIN = 20
+SAME_CLOCK_SEARCH_MS = 25       # 同一時鐘的兩軌：到達時間差的搜尋範圍（25 ms 約等於 8.6 m 的路徑差）
+SAME_CLOCK_TREND_PPM = 5.0      # 到達時間差隨時間的趨勢超過這個值就提醒（聲源在移動，或其實不是同一時鐘）
+SPACING_HARD_FACTOR = 1.5       # |到達時間差| 超過 1.5·d/c + 1 取樣點 → 物理上不可能（直線間距的繞射餘裕取 1.5 倍）
 COLORS = {"A": "#d62728", "B": "#1f77b4", "C": "#2ca02c"}
 
 
@@ -258,11 +268,45 @@ def pair_phase(X1, X2, sr, cut, Z1, Z2, alpha, hop, fs_):
 
 
 # ---------------------------------------------------------------- 主程式
-def run(paths, out, note=""):
-    """paths: {"A": path, "B": path, ["C": path]}。回傳 summary dict（也寫入 out/summary.json）。"""
+def sound_speed(temperature_c):
+    return 331.3 + 0.606 * float(temperature_c)
+
+
+def same_clock_measure(ref, x, sr, exclude_s, spacing_m, c):
+    """與 A 同一時鐘的軌：只量聲學到達時間差（不補償）。回傳 (info, fit 或 None, D 或 None)。"""
+    info = {"coarse": {"method": "same_clock"}, "same_clock": True, "aligned": False, "drift_compensated": False}
+    fit, D = None, None
+    try:
+        D, f, fit = fine_offset(ref, x, sr, 0, search_ms=SAME_CLOCK_SEARCH_MS, exclude_s=exclude_s)
+        info.update({"acoustic_tdoa_samples": D, "acoustic_tdoa_us": 1e6 * D / sr,
+                     "tdoa_spread_p5_p95_samples": f["offset_spread_p5_p95_samples"],
+                     "tdoa_trend_ppm": f["drift_ppm"], "fit_residual_std_samples": f["fit_residual_std_samples"],
+                     "windows_total": f["windows_total"], "windows_phat_ge_20": f["windows_phat_ge_20"]})
+        if f["windows_phat_ge_20"] >= 5 and abs(f["drift_ppm"]) > SAME_CLOCK_TREND_PPM:
+            info["clock_warning"] = (f"到達時間差隨時間變化 {f['drift_ppm']:+.1f} ppm："
+                                     "聲源在移動，或這兩軌其實不是同一個時鐘")
+    except RuntimeError as e:
+        info["tdoa_error"] = str(e)
+    if spacing_m is not None:
+        dmax = spacing_m / c * sr
+        info["spacing"] = {"spacing_m": float(spacing_m), "sound_speed_m_s": c, "max_tdoa_samples": dmax,
+                           "max_tdoa_us": 1e6 * spacing_m / c, "aliasing_hz": c / (2 * spacing_m)}
+        if D is not None:
+            info["spacing"]["tdoa_over_straight_line_limit"] = bool(abs(D) > dmax + 1.0)
+            info["spacing"]["tdoa_physically_possible"] = bool(abs(D) <= SPACING_HARD_FACTOR * dmax + 1.0)
+    return info, fit, D
+
+
+def run(paths, out, note="", same_clock=(), spacing_m=None, temperature_c=20.0):
+    """paths: {"A": path, "B": path, ["C": path]}。回傳 summary dict（也寫入 out/summary.json）。
+    same_clock：與 A 共用取樣時鐘的聲源（例如 ("B",)）；spacing_m：{"B": 與 A 的間距（公尺）}。"""
     os.makedirs(out, exist_ok=True)
     labels = [k for k in ("A", "B", "C") if paths.get(k)]
     assert len(labels) >= 2 and labels[0] == "A", "至少需要 A 與 B"
+    same_clock = tuple(k for k in labels[1:] if k in set(same_clock or ()))
+    spacing_m = {k: float(v) for k, v in (spacing_m or {}).items() if k in same_clock}
+    assert all(v > 0 for v in spacing_m.values()), "間距必須是正數（公尺）"
+    c_air = sound_speed(temperature_c)
     raw, sr = {}, None
     for k in labels:
         raw[k], s = load_mono(paths[k])
@@ -275,9 +319,21 @@ def run(paths, out, note=""):
     chirps = {k: detect_chirps(raw[k], sr) for k in labels}
     J["sync_chirps_detected_s"] = {k: [round(c[0], 4) for c in chirps[k]] for k in labels}
     aligned = {"A": raw["A"]}
+    steered = {}
     J["sync"] = {}
     plots = {}
+    if same_clock:
+        J["same_clock"] = list(same_clock)
     for k in labels[1:]:
+        if k in same_clock:
+            info, fit, D = same_clock_measure(raw["A"], raw[k], sr, [c[0] for c in chirps["A"]],
+                                              spacing_m.get(k), c_air)
+            aligned[k] = raw[k]
+            if D is not None:
+                steered[k] = apply_offset(raw[k], D)
+            J["sync"][f"{k}_vs_A"] = info
+            plots[k] = (None, fit, D, info)
+            continue
         ch = coarse_chirp(chirps["A"], chirps[k], sr)
         if ch is not None:
             D0, cinfo = ch
@@ -302,7 +358,7 @@ def run(paths, out, note=""):
             finfo["after_alignment"] = {"error": str(e)}
         J["sync"][f"{k}_vs_A"] = {"coarse": cinfo, **finfo}
         plots[k] = (curve, fit, D, finfo)
-    n = min(len(v) for v in aligned.values())
+    n = min(len(v) for v in list(aligned.values()) + list(steered.values()))
     X = {k: aligned[k][:n] for k in labels}
     for k in labels:
         sf.write(os.path.join(out, f"{k}_aligned.wav"), X[k].astype(np.float32), sr, subtype="FLOAT")
@@ -337,8 +393,11 @@ def run(paths, out, note=""):
             "median": float(np.median(d)), "p5_p95": [float(np.percentile(d, 5)), float(np.percentile(d, 95))],
             "corr_with_level": float(np.corrcoef(d, mean_lv)[0, 1])}
 
-    # 4. 背景移除
-    ZS = np.mean([Z[k] for k in labels], axis=0)
+    # 4. 背景移除（同一時鐘的軌用朝主聲源對正的副本做平均，否則高頻會因到達時間差互相抵消）
+    Zr = dict(Z)
+    for k, y in steered.items():
+        _, _, Zr[k] = ss.stft(y[:n], sr, nperseg=nf, noverlap=nf - hop)
+    ZS = np.mean([Zr[k] for k in labels], axis=0)
     Gc = np.mean([PA[p]["Gc"] for p in pairs], axis=0)
     PS = np.abs(ZS) ** 2
     floor = np.percentile(PS, 10, axis=1)[:, None]
@@ -367,13 +426,36 @@ def run(paths, out, note=""):
         "mean_coherence_gain_db": float(10 * np.log10(np.mean(Gc[mband]))),
         "settings": {"stft": [nf, hop], "coherence_alpha": alpha, "gain_floor_db": -20, "floor_percentile": 10,
                      "pairs_averaged": [f"{a_}-{b_}" for a_, b_ in pairs]}}
+    if steered:
+        J["background_removal"]["settings"]["steered_same_clock_samples"] = {
+            k: float(J["sync"][f"{k}_vs_A"]["acoustic_tdoa_samples"]) for k in steered}
 
     # ---------------------------------------------------------------- 圖
     # 圖 1：同步
     others = labels[1:]
     fig, axs = plt.subplots(len(others) + 1, 1, figsize=(14, 4 + 3.5 * len(others)))
     for ax, k in zip(axs, others):
+        if plots[k][1] is None:
+            ax.text(0.5, 0.5, f"{k} 與 A 同一時鐘；到達時間差量不到（峰值清楚的窗不足）", ha="center", va="center",
+                    transform=ax.transAxes)
+            ax.set_axis_off()
+            continue
         curve, (win, good, p, resid), D, finfo = plots[k]
+        if k in same_clock:
+            ax.plot(win[good, 0], win[good, 1], "o", ms=4, color=COLORS[k], label="GCC-PHAT 峰值清楚的窗")
+            ax.plot(win[~good, 0], win[~good, 1], "x", ms=5, color="#bbbbbb", label="峰值不清楚（不採用）")
+            sp = finfo.get("spacing")
+            if sp:
+                for sgn in (-1, 1):
+                    ax.axhline(sgn * sp["max_tdoa_samples"], color="r", ls="--", lw=0.8,
+                               label="直線間距上限 ±d/c" if sgn < 0 else None)
+            ax.set_ylim(D - 6, D + 6) if not sp else ax.set_ylim(
+                min(D - 6, -sp["max_tdoa_samples"] - 3), max(D + 6, sp["max_tdoa_samples"] + 3))
+            ax.set_title(f"{k} 對 A：同一時鐘，不對齊；聲學到達時間差 {D:.2f} 取樣點 = {1e6 * D / sr:.0f} µs"
+                         f"（{k} 比 A 晚為正）")
+            ax.set_ylabel(f"{k} - A 到達時間差（取樣點）")
+            ax.legend(fontsize=8)
+            continue
         ax.plot(win[good, 0], win[good, 1], "o", ms=4, color=COLORS[k], label="GCC-PHAT 峰值清楚的窗")
         ax.plot(win[~good, 0], win[~good, 1], "x", ms=5, color="#bbbbbb", label="峰值不清楚（不採用）")
         ax.plot(win[:, 0], np.polyval(p, win[:, 0]), "k-", lw=1, label=f"直線擬合：漂移 {finfo['drift_ppm']:+.2f} ppm")
@@ -503,8 +585,14 @@ def main():
     ap.add_argument("--c", default=None, help="聲源 C wav（可省略）")
     ap.add_argument("--out", required=True)
     ap.add_argument("--source-note", default="")
+    ap.add_argument("--same-clock", default="", help="與 A 同一時鐘的聲源，逗號分隔，例如 B")
+    ap.add_argument("--spacing", default="", help="同一時鐘聲源與 A 的間距（公尺），例如 B=0.15")
+    ap.add_argument("--temperature-c", type=float, default=20.0, help="現場氣溫，用來算音速")
     args = ap.parse_args()
-    J = run({"A": args.a, "B": args.b, "C": args.c}, args.out, args.source_note)
+    same = [k.strip().upper() for k in args.same_clock.split(",") if k.strip()]
+    spacing = {kv.split("=")[0].strip().upper(): float(kv.split("=")[1]) for kv in args.spacing.split(",") if kv.strip()}
+    J = run({"A": args.a, "B": args.b, "C": args.c}, args.out, args.source_note,
+            same_clock=same, spacing_m=spacing, temperature_c=args.temperature_c)
     print(json.dumps({"sync": J["sync"], "background_removal": J["background_removal"]}, ensure_ascii=False, indent=1))
 
 

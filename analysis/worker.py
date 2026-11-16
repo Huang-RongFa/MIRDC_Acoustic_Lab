@@ -152,10 +152,13 @@ def _finite(v):
 
 def alignment_verdict(summary):
     """對齊後重量一次的殘差都夠小才算「已驗證」；否則數字不可當作同步結果使用。
-    以實際送進分析的聲源為準：每一支非 A 聲源都必須有 <聲源>_vs_A 且殘差欄位是有限數字。"""
+    以實際送進分析的聲源為準：每一支非 A 聲源都必須有 <聲源>_vs_A 且殘差欄位是有限數字。
+    例外：與 A 同一時鐘的聲源（分析時以 --same-clock 宣告，網站錄音不會有）不做對齊，硬體上本來就同步；
+    只在給了間距、且量到的到達時間差超過物理上限時判定不通過。"""
     channels = [k for k in (summary.get("channels") or []) if k in LABELS]
     sync = summary.get("sync") if isinstance(summary.get("sync"), dict) else {}
     reasons = {}
+    same_clock_pairs = []
     if "A" not in channels or len(channels) < 2:
         reasons["channels"] = "缺少可對齊的聲源"
     for k in channels:
@@ -163,6 +166,15 @@ def alignment_verdict(summary):
             continue
         pair = f"{k}_vs_A"
         info = sync.get(pair)
+        if isinstance(info, dict) and info.get("same_clock") is True:
+            same_clock_pairs.append(pair)
+            sp = info.get("spacing") if isinstance(info.get("spacing"), dict) else {}
+            if sp.get("tdoa_physically_possible") is False:
+                tdoa, dmax = info.get("acoustic_tdoa_samples"), sp.get("max_tdoa_samples")
+                detail = (f"到達時間差 {tdoa:.1f} 取樣點超過直線間距上限 {dmax:.1f} 取樣點的 1.5 倍"
+                          if _finite(tdoa) and _finite(dmax) else "到達時間差超過間距的物理上限")
+                reasons[pair] = detail + "：不是同一時鐘，或間距填錯"
+            continue
         after = info.get("after_alignment") if isinstance(info, dict) else None
         if not isinstance(after, dict) or "error" in after:
             reasons[pair] = "對齊後無法重新量測"
@@ -174,8 +186,11 @@ def alignment_verdict(summary):
             reasons[pair] = f"殘餘偏移 {off:.2f} 取樣點"
         elif abs(ppm) > MAX_RESIDUAL_PPM:
             reasons[pair] = f"殘餘漂移 {ppm:.1f} ppm"
-    return {"verified": not reasons, "channels": channels, "failed_pairs": reasons,
-            "criteria": {"max_residual_samples": MAX_RESIDUAL_SAMPLES, "max_residual_ppm": MAX_RESIDUAL_PPM}}
+    verdict = {"verified": not reasons, "channels": channels, "failed_pairs": reasons,
+               "criteria": {"max_residual_samples": MAX_RESIDUAL_SAMPLES, "max_residual_ppm": MAX_RESIDUAL_PPM}}
+    if same_clock_pairs:
+        verdict["same_clock_pairs"] = same_clock_pairs
+    return verdict
 
 
 def complete(c, job, worker_id, summary):

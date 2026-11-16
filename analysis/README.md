@@ -13,6 +13,8 @@
 | `worker.py` | 地端分析 worker：從 `mobile_capture.analysis_jobs` 認領工作、校驗並解碼音段、跑本模型、結果寫回資料表（見 [`docs/analysis-worker.md`](../docs/analysis-worker.md)） |
 | `offline.py` | 不經過網站資料庫的離線分析：`chirp` 產生同步嗶聲 wav；`run` 把 2–3 個任意格式的錄音檔（webm、m4a、wav）解碼成 48 kHz 單聲道後跑本模型，印出對齊判定（與 worker 同一套標準）並寫 `offline_report.json` |
 | `tests/test_offline.py` | 離線分析測試：嗶聲檔可被偵測、混合格式（webm／m4a／44.1 kHz wav）對齊通過、無嗶聲時改用包絡仍通過、拒絕把輸出寫進儲存庫 |
+| `record_usb.py` | 同時錄一台雙聲道 USB 裝置（例如 miniDSP EARS）與一支單聲道 USB 麥克風（例如 UMIK-2）；錄完檢查聲道數、長度、破音、沒聲音、左右是否相同。只支援 Windows，用內附的 ffmpeg，不需要另外安裝套件 |
+| `tests/test_ears_umik.py` | 雙聲道同一時鐘＋獨立時鐘麥克風的測試（11 項，不需要接上裝置） |
 | `tests/test_worker.py` | worker 的資料庫整合測試（每個測試建新資料庫，用最小權限帳號跑） |
 | `requirements.txt` | numpy、scipy、soundfile、matplotlib、psycopg（worker 用）、imageio-ffmpeg（沒有系統 ffmpeg 時） |
 
@@ -37,6 +39,29 @@ python -X utf8 analysis/offline.py chirp --out D:\cnc_offline\sync_chirp.wav
 python -X utf8 analysis/offline.py run --a A.webm --b B.webm --c C.webm --out D:\cnc_offline\run1 --note "機台、轉速、麥克風位置"
 python -X utf8 analysis/tests/test_offline.py
 ```
+
+## 雙聲道裝置（EARS）＋獨立麥克風（UMIK-2）
+
+EARS 的左右兩支麥克風在同一台 USB 裝置上，共用一個時鐘：沒有起點差，也沒有漂移。
+UMIK-2 是另一台裝置，有自己的時鐘，和手機一樣要對齊。
+
+```powershell
+python -X utf8 analysis/record_usb.py list
+python -X utf8 analysis/record_usb.py record --stereo EARS --mono UMIK --seconds 60 --out D:\cnc_offline
+un2
+python -X utf8 analysis/offline.py run --stereo-ab D:\cnc_offline
+un2\stereo.wav --c D:\cnc_offline
+un2\mono.wav --ab-spacing-m 0.15 --out D:\cnc_offline
+un2nalysis
+python -X utf8 analysis/tests/test_ears_umik.py
+```
+
+- A＝左聲道、B＝右聲道、C＝獨立麥克風。
+- **A–B 不對齊**：量到的時間差就是聲學到達時間差（B 比 A 晚到為正），只記錄、不補償。相位用原始兩軌計算，所以 A–B 的相位斜率不是 0，而是到達時間差。注意兩個數字的正負號相反：B 晚到時，到達時間差為正、相位斜率換算的時間差為負。
+- **C 對齊到 A**：做法和手機相同（嗶聲或包絡粗對齊、機台聲精對齊、補償漂移）。因此 A–C、B–C 的相位仍是相對相位，主聲源的到達時間差已被對齊抵消。
+- `--ab-spacing-m`：兩支麥克風開孔的間距。給了就會算直線上限 d/c 與相位不混疊的頻率上限 c/(2d)。時間差超過直線上限會提醒；超過 1.5 倍（留給治具繞射的餘裕）就判定不通過，代表間距填錯，或這兩軌不是同一個時鐘。
+- 背景移除的「各軌平均」會先把 B 朝主聲源對正再平均，只影響第 4 步；相位與輸出的 `B_aligned.wav` 都是原始的 B。
+- 直接呼叫模型時用 `--same-clock B --spacing B=0.15`。
 
 ## 做了什麼
 
