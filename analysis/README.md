@@ -47,12 +47,8 @@ UMIK-2 是另一台裝置，有自己的時鐘，和手機一樣要對齊。
 
 ```powershell
 python -X utf8 analysis/record_usb.py list
-python -X utf8 analysis/record_usb.py record --stereo EARS --mono UMIK --seconds 60 --out D:\cnc_offline
-un2
-python -X utf8 analysis/offline.py run --stereo-ab D:\cnc_offline
-un2\stereo.wav --c D:\cnc_offline
-un2\mono.wav --ab-spacing-m 0.15 --out D:\cnc_offline
-un2nalysis
+python -X utf8 analysis/record_usb.py record --stereo EARS --mono UMIK --seconds 60 --out D:\cnc_offline\run2
+python -X utf8 analysis/offline.py run --stereo-ab D:\cnc_offline\run2\stereo.wav --c D:\cnc_offline\run2\mono.wav --ab-spacing-m 0.15 --out D:\cnc_offline\run2\analysis
 python -X utf8 analysis/tests/test_ears_umik.py
 ```
 
