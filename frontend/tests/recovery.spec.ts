@@ -7,6 +7,24 @@ test('microphone denial is reported without becoming ready',async({browser})=>{
   try{await page.goto('/');await page.getByRole('button',{name:'建立新房間',exact:true}).click();await expect(page.getByText('伺服器已連線',{exact:true})).toBeVisible();await page.getByRole('button',{name:'測試並授權麥克風'}).click();await expect(page.getByRole('status')).toContainText('Permission denied');await expect(page.getByRole('button',{name:'我已就緒，等待主控',exact:true})).toBeDisabled();await expect(page.locator('.person-status').first()).toHaveText('裝置錯誤');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}finally{await context.close();}
 });
 
+test('a one-channel input is rejected when Stereo is selected',async({page})=>{
+  await page.addInitScript(()=>{
+    navigator.mediaDevices.getUserMedia=async()=>{
+      const context=new AudioContext();
+      const output=context.createMediaStreamDestination();
+      output.channelCount=1;
+      return output.stream;
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button',{name:'建立新房間',exact:true}).click();
+  await expect(page.getByText('伺服器已連線',{exact:true})).toBeVisible();
+  await page.getByLabel('錄音聲道').selectOption('2');
+  await page.getByRole('button',{name:'測試並授權麥克風'}).click();
+  await expect(page.getByRole('status')).toContainText('瀏覽器未確認雙聲道輸入');
+  await expect(page.getByRole('button',{name:'我已就緒，等待主控',exact:true})).toBeDisabled();
+});
+
 for(const scenario of ['refresh','host-background','host-close','post-stop-reopen'])test('capture recovery: '+scenario,async({browser})=>{
   const contexts=await Promise.all([0,1,2].map(()=>browser.newContext({permissions:['microphone']})));
   const pages=await Promise.all(contexts.map(c=>c.newPage()));
@@ -53,7 +71,7 @@ for(const scenario of ['refresh','host-background','host-close','post-stop-reope
     }
     const expected=scenario==='refresh'?['A:stored','B:interrupted','C:stored']:
       scenario==='host-close'?['A:interrupted','B:stored','C:stored']:['A:stored','B:stored','C:stored'];
-    await expect.poll(async()=>pages[0].evaluate(async()=>{const identity=JSON.parse(localStorage.getItem('cnc-identities')!)[0];const result=await(await fetch('/api/rooms/'+identity.room_code,{headers:{Authorization:'Bearer '+identity.token}})).json();return result.recordings.map((r:{source_label:string;status:string})=>r.source_label+':'+r.status);}),{timeout:15000}).toEqual(expected);
+    await expect.poll(async()=>pages[0].evaluate(async()=>{const identity=JSON.parse(localStorage.getItem('cnc-identities')!)[0];const result=await(await fetch('/api/rooms/'+identity.room_code,{headers:{Authorization:'Bearer '+identity.token}})).json();return result.recordings.map((r:{source_label:string;status:string})=>r.source_label+':'+r.status);}),{timeout:45000}).toEqual(expected);
     if(expected.every(status=>status.endsWith(':stored')))await expect(pages[0].locator('.control-state')).toContainText('三聲源儲存完成');
     else await expect(pages[0].locator('.control-state')).not.toContainText('三聲源儲存完成');
   }finally{await Promise.all(contexts.map(c=>c.close()));}

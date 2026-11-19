@@ -126,6 +126,7 @@ for(const duration of [30,300])test(`three browser recordings, ${duration}s with
     await expect(a.page.getByText('上傳完整', {exact:true})).toHaveCount(3);
     for(const source of ['A','B','C'])await a.page.locator('article').filter({has:a.page.getByRole('heading',{name:'Recorder '+source,exact:true})}).getByRole('button',{name:'載入試聽與波形'}).click();
     await expect(a.page.locator('audio')).toHaveCount(3);
+    await expect(a.page.locator('canvas[aria-label$="原始音檔波形"]')).toHaveCount(3,{timeout:15000});
     await expect.poll(()=>a.page.locator('audio').evaluateAll(elements=>elements.every(el=>(el as HTMLAudioElement).readyState>=2))).toBe(true);
     await a.page.locator('audio').first().evaluate(async el=>{await (el as HTMLAudioElement).play();});
     await expect.poll(()=>a.page.locator('audio').first().evaluate(el=>(el as HTMLAudioElement).currentTime)).toBeGreaterThan(0);

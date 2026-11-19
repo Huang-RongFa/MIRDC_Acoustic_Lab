@@ -474,9 +474,9 @@
     "semantic_hash": ""
   },
   "frontend/tests/recording.spec.ts": {
-    "mtime": 1795059553.037592,
-    "seen": 1795059669.413252,
-    "ast_hash": "f88febdf9849d2d7c6576b3e41f0351e",
+    "mtime": 1795059719.4689927,
+    "seen": 1795059743.0066583,
+    "ast_hash": "81080c323e35e417ea0306ac770243af",
     "semantic_hash": ""
   },
   "frontend/tsconfig.json": {
@@ -1008,9 +1008,9 @@
     "semantic_hash": ""
   },
   "frontend/tests/recovery.spec.ts": {
-    "mtime": 1795059641.3375745,
-    "seen": 1795059669.413252,
-    "ast_hash": "f8366c173b01111e510c7c56e093d399",
+    "mtime": 1795059799.2746477,
+    "seen": 1795059832.1844501,
+    "ast_hash": "e51c6da8f8dd1f6434202bf76bacad6f",
     "semantic_hash": ""
   },
   "scripts/run-backend.ps1": {

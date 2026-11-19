@@ -1,7 +1,7 @@
 # Graph Report - recording-stability-src  (2026-11-19)
 
 ## Corpus Check
-- 181 files · ~261,050 words
+- 181 files · ~261,089 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 109 file(s) not represented in the graph (top: .ttf 54, .csv 46, .css 3)
 - WARNING: 109 of 325 files seen (34%) have no supported extractor and are missing from this graph entirely. It may look complete while representing only part of the codebase.
@@ -12,7 +12,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `6f7ababb`
+- Built from commit: `f09a28f0`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -753,16 +753,16 @@ Nodes (3): split_values(), style_identities(), TestStyleIdentityContract
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `code_commit()` connect `worker.py` to `sys`?**
-  _High betweenness centrality (0.061) - this node is a cross-community bridge._
+  _High betweenness centrality (0.056) - this node is a cross-community bridge._
 - **Are the 39 inferred relationships involving `yy()` (e.g. with `ad()` and `ah()`) actually correct?**
   _`yy()` has 39 INFERRED edges - model-reasoned connections that need verification._
 - **Should `App.tsx` be split into smaller, more focused modules?**
   _Cohesion score 0.05284831846259437 - nodes in this community are weakly interconnected._
-- **Why does `地端分析 worker：雲端只寫入，地端計算，資料表溝通` connect `地端分析 worker：雲端只寫入，地端計算，資料表溝通` to `README.md`, `worker.py`?**
-  _High betweenness centrality (0.056) - this node is a cross-community bridge._
+- **Why does `資料表（migration 004）` connect `worker.py` to `地端分析 worker：雲端只寫入，地端計算，資料表溝通`?**
+  _High betweenness centrality (0.051) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `TailwindConfigGenerator` (e.g. with `TestGeneratedConfigIsValidJs` and `TestTailwindConfigGenerator`) actually correct?**
   _`TailwindConfigGenerator` has 2 INFERRED edges - model-reasoned connections that need verification._
 - **Should `ShadcnInstaller` be split into smaller, more focused modules?**
   _Cohesion score 0.053555750658472345 - nodes in this community are weakly interconnected._
-- **Why does `資料表（migration 004）` connect `worker.py` to `地端分析 worker：雲端只寫入，地端計算，資料表溝通`?**
-  _High betweenness centrality (0.056) - this node is a cross-community bridge._
+- **Why does `地端分析 worker：雲端只寫入，地端計算，資料表溝通` connect `地端分析 worker：雲端只寫入，地端計算，資料表溝通` to `README.md`, `worker.py`?**
+  _High betweenness centrality (0.051) - this node is a cross-community bridge._
