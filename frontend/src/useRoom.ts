@@ -52,14 +52,19 @@ export function useRoom(identity:Identity|null){
         const right=recorder.rightSamples()??undefined;
         setWaves(old=>({...old,local:{samples,right,at:performance.now()}}));
         if((socket.current?.bufferedAmount??0)<16384)send({type:'preview',samples,right});
-      }
-      setMic(!!recorder.stream?.getAudioTracks().some(t=>t.readyState==='live'));
+      }else setWaves(old=>{
+        if(!old.local)return old;
+        const next={...old};
+        delete next.local;
+        return next;
+      });
+      setMic(recorder.microphoneReady);
     },250);
     const online=()=>void recorder.flush(true);
     window.addEventListener('online',online);
     const beforeUnload=(event:BeforeUnloadEvent)=>{if(recorder.recorder?.state==='recording'){event.preventDefault();event.returnValue='';}};
     window.addEventListener('beforeunload',beforeUnload);
-    const visibility=()=>{if(document.visibilityState==='hidden')recorder.background();else void recorder.context?.resume().catch(()=>{});};
+    const visibility=()=>{if(document.visibilityState==='hidden')recorder.background();else void recorder.resumePreview().catch(error=>setMessage(error.message));};
     document.addEventListener('visibilitychange',visibility);
     return()=>{closed=true;clearTimeout(timer);clearInterval(heartbeat);clearInterval(preview);window.removeEventListener('online',online);window.removeEventListener('beforeunload',beforeUnload);document.removeEventListener('visibilitychange',visibility);wsClose();recorder.dispose();device.current=null;};
     function wsClose(){socket.current?.close();}

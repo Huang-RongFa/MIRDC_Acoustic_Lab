@@ -1,18 +1,18 @@
 # Graph Report - recording-stability-src  (2026-11-19)
 
 ## Corpus Check
-- 181 files · ~261,089 words
+- 182 files · ~261,529 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 109 file(s) not represented in the graph (top: .ttf 54, .csv 46, .css 3)
-- WARNING: 109 of 325 files seen (34%) have no supported extractor and are missing from this graph entirely. It may look complete while representing only part of the codebase.
+- WARNING: 109 of 326 files seen (33%) have no supported extractor and are missing from this graph entirely. It may look complete while representing only part of the codebase.
 
 ## Summary
-- 2884 nodes · 5782 edges · 163 communities (137 shown, 26 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 312 edges (avg confidence: 0.86)
+- 2892 nodes · 5796 edges · 174 communities (139 shown, 35 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 313 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f09a28f0`
+- Built from commit: `9e9de997`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -23,7 +23,7 @@
 - gray
 - slide_search_core.py
 - Tailwind CSS Utility Reference
-- worker.py
+- test_worker.py
 - core.py
 - validate_data.py
 - Canvas Design System
@@ -42,7 +42,7 @@
 - TestTailwindConfigGenerator
 - UI Styling Skill
 - States and Variants
-- json
+- analyse
 - Codebase Design
 - Design System
 - Tailwind CSS Customization
@@ -67,13 +67,13 @@
 - fontSize
 - Fullstack Development Workflows
 - Diagnosing Bugs
-- _palette_is_dark
+- worker.py
 - CatalogRefreshTest
 - Tailwind Integration
 - radius
 - authorize
 - Token Architecture
-- sys
+- json
 - index-BOGSLSpr.js
 - Test-Driven Development
 - .test_node_check_parses_generated_config
@@ -82,6 +82,7 @@
 - Primitive Tokens
 - card
 - Senior Fullstack
+- main
 - compilerOptions
 - Component Tokens
 - Zr
@@ -107,28 +108,28 @@
 - i0
 - y
 - _select_palette_for_mode
-- json
+- package.json
 - TestStackFlagWithDesignSystem
 - offline.py
 - RtlCliTest
 - interface
 - interface
 - Ys
-- read_rows
-- _search_csv_detailed
+- devDependencies
+- BM25
 - interface
 - hitl-loop.template.sh
 - interface
 - Database Patterns
 - test_ears_umik.py
-- package.json
+- @playwright/test
 - design-tokens-starter.json
 - interface
 - publish
 - 系統與 PostgreSQL 設計
 - test_synthetic.py
 - button
-- _load_csv
+- test_skill_script_paths.py
 - CNC Acoustic Lab 開發與版本管理
 - 2026-11-10 更新 v1：分析模型上線、收音設定紀錄、同步嗶聲
 - 2026-11-12 更新 v3：離線分析工具（不經過網站資料庫）
@@ -148,7 +149,7 @@
 - template-analysis.md
 - schema.md
 - 50
-- test_catalog_summary_line_endings.py
+- TestThresholdGate
 - Authentication Solutions
 - analysis/ — 多手機錄音分析模型（v1）
 - 800
@@ -160,7 +161,9 @@
 - V1.5 驗證紀錄
 - CNC Acoustic Lab V1.5
 - padding-y
+- capture_effects
 - white
+- alignment_verdict
 - destructive
 - destructive-foreground
 - muted
@@ -168,6 +171,15 @@
 - ring
 - secondary-foreground
 - split_values
+- CatalogSummaryLineEndingsTest
+- TestLandingAndStackContract
+- HTTP 與 WebSocket 契約
+- scripts
+- recording.spec.ts
+- TestMetricMath
+- TestFixtureValidation
+- CNC Acoustic Lab｜完整 SQL 資料字典 V1.2
+- vite
 
 ## God Nodes (most connected - your core abstractions)
 1. `yy()` - 389 edges
@@ -196,7 +208,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (163 total, 26 thin omitted)
+## Communities (174 total, 35 thin omitted)
 
 ### Community 0 - "App.tsx"
 Cohesion: 0.05
@@ -207,7 +219,7 @@ Cohesion: 0.05
 Nodes (3): main(), ShadcnInstaller, TestShadcnInstaller
 
 ### Community 2 - "re"
-Cohesion: 0.14
+Cohesion: 0.12
 Nodes (11): analyze_dependencies(), analyze_documentation(), analyze_project(), analyze_security(), analyze_test_coverage(), calculate_complexity(), count_lines(), generate_recommendations() (+3 more)
 
 ### Community 3 - "gray"
@@ -215,24 +227,24 @@ Cohesion: 0.11
 Nodes (19): $type, $value, $type, $value, $type, $value, $type, $value (+11 more)
 
 ### Community 4 - "slide_search_core.py"
-Cohesion: 0.08
-Nodes (17): format_context(), format_result(), main(), BM25, calculate_pattern_break(), detect_domain(), get_background_config(), get_color_for_emotion() (+9 more)
+Cohesion: 0.11
+Nodes (16): format_context(), format_result(), main(), calculate_pattern_break(), detect_domain(), get_background_config(), get_color_for_emotion(), get_layout_for_goal() (+8 more)
 
 ### Community 5 - "Tailwind CSS Utility Reference"
 Cohesion: 0.05
 Nodes (43): Arbitrary Values, Aspect Ratio, Background Colors, Border Color, Border Radius, Border Style, Border Width, Borders (+35 more)
 
-### Community 6 - "worker.py"
-Cohesion: 0.06
-Nodes (40): test_verdict_same_clock_rules(), fresh_db(), jobs(), seed_session(), synthetic_webm(), test_completion_trigger_enqueues_exactly_once(), test_corrupt_chunk_is_retried_then_failed_without_results(), test_expired_lease_at_attempt_limit_becomes_failed() (+32 more)
+### Community 6 - "test_worker.py"
+Cohesion: 0.22
+Nodes (15): fresh_db(), jobs(), seed_session(), test_completion_trigger_enqueues_exactly_once(), test_corrupt_chunk_is_retried_then_failed_without_results(), test_expired_lease_at_attempt_limit_becomes_failed(), test_expired_lease_is_reclaimed_and_stale_worker_cannot_write(), test_rerunning_role_script_removes_previous_column_grants() (+7 more)
 
 ### Community 7 - "core.py"
 Cohesion: 0.07
-Nodes (20): _contains_phrase(), _exact_match_diagnostic(), _exact_row_identity(), _exact_stack_identifier(), _legacy_successor_guidance(), _normalize(), _normalize_rtl_level(), _passes_threshold() (+12 more)
+Nodes (23): _contains_phrase(), _domain_keywords(), _exact_match_diagnostic(), _exact_row_identity(), _file_signature(), _get_bm25(), _legacy_successor_guidance(), _load_csv() (+15 more)
 
 ### Community 8 - "validate_data.py"
-Cohesion: 0.10
-Nodes (35): _catalog_date(), _check_app_interface_contract(), _check_catalog_contract(), _check_catalog_summary(), _check_chart_contract(), _check_color_contract(), _check_core_data_contract(), _check_file() (+27 more)
+Cohesion: 0.06
+Nodes (44): read_rows(), TestAccessibilityGuidance, TestChartsTypographyAndIcons, TestCurrentReactGuidance, TestSemanticColors, TestGeneratedCatalogContract, _catalog_date(), _check_app_interface_contract() (+36 more)
 
 ### Community 9 - "Canvas Design System"
 Cohesion: 0.06
@@ -255,24 +267,24 @@ Cohesion: 0.06
 Nodes (32): 1. Mobile-First Design, 2. Consistent Breakpoint Usage, 3. Test at Breakpoint Boundaries, 4. Use Container for Content Width, 5. Progressive Enhancement, 6. Avoid Too Many Breakpoints, Best Practices, Breakpoint System (+24 more)
 
 ### Community 14 - "全欄位清單"
-Cohesion: 0.06
-Nodes (31): `analysis_artifacts` — 大容量衍生音訊、FFT／STFT 圖檔位置與雜湊, `app_users` — 研究人員與系統管理者, `audio_assets` — 封存三通道無損音檔及其雜湊, `audio_chunks` — 錄音中寫入 SQL 的三通道 PCM 區塊, `audio_quality_checks` — 音訊完整性與品質檢查, `capture_devices` — 多通道音訊介面和錄音主機, `channel_features` — 各聲道各視窗的聲學數值特徵, CNC Acoustic Lab｜完整 SQL 資料字典 V1.2 (+23 more)
+Cohesion: 0.07
+Nodes (28): `analysis_artifacts` — 大容量衍生音訊、FFT／STFT 圖檔位置與雜湊, `app_users` — 研究人員與系統管理者, `audio_assets` — 封存三通道無損音檔及其雜湊, `audio_chunks` — 錄音中寫入 SQL 的三通道 PCM 區塊, `audio_quality_checks` — 音訊完整性與品質檢查, `capture_devices` — 多通道音訊介面和錄音主機, `channel_features` — 各聲道各視窗的聲學數值特徵, `cutting_tools` — 刀具型錄（規格） (+20 more)
 
 ### Community 15 - "search_stack"
 Cohesion: 0.09
-Nodes (6): search_stack(), TestDiagnosticsContracts, _rows(), TestNativeDesktopStackFreshness, _rows(), TestWebStackFreshness
+Nodes (8): _exact_stack_identifier(), _project_row(), search_stack(), _valid_max_results(), _rows(), TestNativeDesktopStackFreshness, _rows(), TestWebStackFreshness
 
 ### Community 16 - "design_system.py"
-Cohesion: 0.10
-Nodes (9): _detect_page_type(), format_page_override_md(), generate_design_system(), _generate_intelligent_overrides(), persist_design_system(), safe_slug(), _write_persisted_file(), format_output() (+1 more)
+Cohesion: 0.06
+Nodes (13): _detect_page_type(), format_page_override_md(), generate_design_system(), _generate_intelligent_overrides(), persist_design_system(), safe_slug(), _write_persisted_file(), apply_decision_rules() (+5 more)
 
 ### Community 17 - "html-token-validator.py"
 Cohesion: 0.12
 Nodes (12): get_context(), is_allowed_exception(), is_allowed_rgba(), is_inside_block(), load_css_variables(), main(), print_result(), print_summary() (+4 more)
 
 ### Community 18 - "search"
-Cohesion: 0.08
-Nodes (6): search(), TestSearchDomains, TestImeGuidance, RtlFilterTest, TestStyleTaxonomy, TestTextLayoutRetrieval
+Cohesion: 0.07
+Nodes (9): _normalize_rtl_level(), _rtl_row_filter(), search(), _style_search_destination(), TestDiagnosticsContracts, TestSearchDomains, TestImeGuidance, RtlFilterTest (+1 more)
 
 ### Community 19 - "Component Specifications"
 Cohesion: 0.07
@@ -283,8 +295,8 @@ Cohesion: 0.07
 Nodes (28): Accordion, Alert, ARIA Labels, Checkbox and Radio, Color Contrast, Command Palette Navigation, Component-Specific Patterns, Dialog/Modal Navigation (+20 more)
 
 ### Community 21 - "analyze_multi_mic.py"
-Cohesion: 0.15
-Nodes (17): apply_offset(), apply_offset_drift(), coarse_chirp(), coarse_envelope(), codec_cutoff(), db(), fine_offset(), frac_shift() (+9 more)
+Cohesion: 0.13
+Nodes (18): apply_offset(), apply_offset_drift(), coarse_chirp(), coarse_envelope(), codec_cutoff(), db(), fine_offset(), frac_shift() (+10 more)
 
 ### Community 23 - "UI Styling Skill"
 Cohesion: 0.08
@@ -294,9 +306,9 @@ Nodes (25): Accessibility Patterns, Alternative: Tailwind-Only Setup, Best Pract
 Cohesion: 0.08
 Nodes (24): Accessibility, Accessibility Requirements, ARIA States, Color Contrast, Color Variants, Disabled States, Error Messages, Error States (+16 more)
 
-### Community 25 - "json"
-Cohesion: 0.21
-Nodes (6): create_project(), get_file_content(), get_next_steps(), list_templates(), main(), print_result()
+### Community 25 - "analyse"
+Cohesion: 0.11
+Nodes (12): synthetic_webm(), test_lost_lease_kills_the_running_analysis(), test_public_error_hides_local_paths(), analyse(), decode(), fetch_tracks(), ffmpeg_exe(), Heartbeat (+4 more)
 
 ### Community 26 - "Codebase Design"
 Cohesion: 0.09
@@ -319,8 +331,8 @@ Cohesion: 0.09
 Nodes (19): ADR Format, Numbering, Optional sections, Template, What qualifies, When to offer an ADR, GLOSSARY.md Format, Rules (+11 more)
 
 ### Community 31 - "read_rows"
-Cohesion: 0.11
-Nodes (5): _resolve_dial(), read_rows(), TestGeneratedCatalogContract, TestLandingAndStackContract, TestReasoningContract
+Cohesion: 0.14
+Nodes (3): _resolve_dial(), read_rows(), TestReasoningContract
 
 ### Community 32 - "yy"
 Cohesion: 0.06
@@ -346,17 +358,17 @@ Nodes (9): ansi_ljust(), format_ascii_box(), add_wrapped(), wrap_text(), format_
 Cohesion: 0.11
 Nodes (19): $type, $value, background, foreground, muted-foreground, primary, primary-hover, secondary (+11 more)
 
-### Community 38 - "detect_domain"
-Cohesion: 0.18
-Nodes (5): detect_domain(), _domain_keywords(), _file_signature(), _get_bm25(), TestDomainDetection
-
 ### Community 39 - "app.py"
-Cohesion: 0.12
+Cohesion: 0.13
 Nodes (5): Person, Database, CatalogItem, Conditions, Finish
 
 ### Community 40 - "Color Semantics"
 Cohesion: 0.11
 Nodes (17): Accent, Applying Semantic Tokens, Background & Foreground, Border & Ring, Color Semantics, Dark Mode Overrides, Destructive, Interactive States (+9 more)
+
+### Community 42 - "DesignSystemGenerator"
+Cohesion: 0.13
+Nodes (3): DesignSystemGenerator, TestReasoningMatch, TestEndToEndCoherence
 
 ### Community 43 - "UI/UX Pro Max - Design Intelligence"
 Cohesion: 0.11
@@ -370,6 +382,10 @@ Nodes (17): API Design Patterns, Authentication Architecture, Backend Architectu
 Cohesion: 0.12
 Nodes (16): Code Quality Analyzer, code_quality_analyzer.py, Common Issues, Project Scaffolder, project_scaffolder.py, Quick Reference, Stack Decision Matrix, Success Criteria (+8 more)
 
+### Community 46 - "test_core.py"
+Cohesion: 0.13
+Nodes (3): BM25, TestBm25CoreBehavior, TestTokenizer
+
 ### Community 47 - "fontSize"
 Cohesion: 0.11
 Nodes (20): $type, $value, $type, $value, $type, $value, $type, $value (+12 more)
@@ -382,9 +398,9 @@ Nodes (18): Blue-Green Deployment, Canary Deployment, CI/CD Pipelines, Code Revi
 Cohesion: 0.13
 Nodes (14): Completion criterion: a tight loop that goes red, Diagnosing Bugs, Minimise, Non-deterministic bugs, Phase 1: Build a feedback loop, Phase 2: Reproduce + minimise, Phase 3: Hypothesise, Phase 4: Instrument (+6 more)
 
-### Community 51 - "_palette_is_dark"
+### Community 51 - "worker.py"
 Cohesion: 0.18
-Nodes (4): _palette_is_dark(), _relative_luminance(), TestEndToEndCoherence, TestLuminance
+Nodes (8): claim(), code_commit(), expire_exhausted(), fail(), main(), run_once(), `analysis_runs` — 每次前處理／特徵／融合／推論執行紀錄, 資料表（migration 004）
 
 ### Community 53 - "Tailwind Integration"
 Cohesion: 0.14
@@ -402,9 +418,9 @@ Nodes (13): admission(), authorize(), close_room(), conditions(), create_room(),
 Cohesion: 0.15
 Nodes (12): Categories, Dark Mode, File Organization, Layer 1: Primitive Tokens, Layer 2: Semantic Tokens, Layer 3: Component Tokens, Layer Overview, Migration from Flat Tokens (+4 more)
 
-### Community 57 - "sys"
-Cohesion: 0.11
-Nodes (7): main(), _run(), test_generate_slide_json_keeps_non_ascii_text(), test_html_token_validator_reads_utf8_html(), _run(), test_flags_hardcoded_hex_sharing_line_with_token(), test_token_only_line_reports_no_violation()
+### Community 57 - "json"
+Cohesion: 0.06
+Nodes (19): main(), main(), _run(), test_generate_slide_json_keeps_non_ascii_text(), test_html_token_validator_reads_utf8_html(), _run(), test_flags_hardcoded_hex_sharing_line_with_token(), test_token_only_line_reports_no_violation() (+11 more)
 
 ### Community 58 - "index-BOGSLSpr.js"
 Cohesion: 0.06
@@ -413,10 +429,6 @@ Nodes (44): by, dm(), Ds(), dy(), Cl(), H(), Hl(), it() (+36 more)
 ### Community 59 - "Test-Driven Development"
 Cohesion: 0.15
 Nodes (10): Designing for Mockability, When to Mock, Anti-patterns, Rules of the loop, Seams: where tests go, Test-Driven Development, What a good test is, Bad Tests (+2 more)
-
-### Community 60 - ".test_node_check_parses_generated_config"
-Cohesion: 0.14
-Nodes (3): main(), _strip_to_object(), TestGeneratedConfigIsValidJs
 
 ### Community 61 - "Pre-Delivery Checklist (canonical — the only one)"
 Cohesion: 0.15
@@ -495,8 +507,8 @@ Cohesion: 0.18
 Nodes (19): $type, $value, $type, $value, 500, 600, blue, green (+11 more)
 
 ### Community 85 - "generate-slide.py"
-Cohesion: 0.12
-Nodes (11): _e(), generate_chart_slide(), generate_cta_slide(), generate_deck(), generate_metrics_slide(), generate_problem_slide(), generate_solution_slide(), generate_testimonial_slide() (+3 more)
+Cohesion: 0.13
+Nodes (10): _e(), generate_chart_slide(), generate_cta_slide(), generate_deck(), generate_metrics_slide(), generate_problem_slide(), generate_solution_slide(), generate_testimonial_slide() (+2 more)
 
 ### Community 86 - "register_audio"
 Cohesion: 0.19
@@ -511,8 +523,8 @@ Cohesion: 0.33
 Nodes (5): interface, display_name, short_description, policy, allow_implicit_invocation
 
 ### Community 91 - "record_usb.py"
-Cohesion: 0.11
-Nodes (18): ffmpeg_exe(), build_cmd(), capture_effects(), check_file(), cmd_list(), cmd_record(), effects_status(), input_spec() (+10 more)
+Cohesion: 0.16
+Nodes (15): ffmpeg_exe(), build_cmd(), check_file(), cmd_list(), cmd_record(), input_spec(), list_devices(), _list_raw() (+7 more)
 
 ### Community 93 - "fr"
 Cohesion: 0.14
@@ -527,16 +539,16 @@ Cohesion: 0.12
 Nodes (24): Al(), Cr(), Dc(), eo(), Fn(), gd(), Jc(), Jo() (+16 more)
 
 ### Community 96 - "_select_palette_for_mode"
-Cohesion: 0.15
-Nodes (6): _button_outline_text_color(), _contrast_ratio(), _derive_dark_palette(), format_master_md(), _select_palette_for_mode(), TestPaletteSelection
+Cohesion: 0.12
+Nodes (9): _button_outline_text_color(), _contrast_ratio(), _derive_dark_palette(), format_master_md(), _palette_is_dark(), _relative_luminance(), _select_palette_for_mode(), TestLuminance (+1 more)
 
-### Community 97 - "json"
-Cohesion: 0.19
-Nodes (7): apply_decision_rules(), _object_without_duplicates(), parse_decision_rules(), _validate_action(), _check_provenance(), _valid_catalog_source_key(), _valid_provenance_source()
+### Community 97 - "package.json"
+Cohesion: 0.22
+Nodes (9): dependencies, react-dom@^19.2.0, name, overrides, rollup, private, type, version (+1 more)
 
 ### Community 99 - "offline.py"
-Cohesion: 0.22
-Nodes (11): cmd_chirp(), cmd_run(), decode(), decode_stereo(), inside_repo(), main(), _num(), print_report() (+3 more)
+Cohesion: 0.15
+Nodes (15): cmd_chirp(), cmd_run(), decode(), decode_stereo(), inside_repo(), main(), _num(), print_report() (+7 more)
 
 ### Community 101 - "interface"
 Cohesion: 0.50
@@ -550,13 +562,9 @@ Nodes (3): interface, display_name, short_description
 Cohesion: 0.12
 Nodes (24): ay(), Bs(), Dt(), hi(), Hs(), I(), Ie(), iu() (+16 more)
 
-### Community 104 - "read_rows"
-Cohesion: 0.19
-Nodes (5): read_rows(), TestAccessibilityGuidance, TestChartsTypographyAndIcons, TestCurrentReactGuidance, TestSemanticColors
-
-### Community 105 - "_search_csv_detailed"
-Cohesion: 0.25
-Nodes (3): _search_csv(), _search_csv_detailed(), TestBm25CoreBehavior
+### Community 104 - "devDependencies"
+Cohesion: 0.20
+Nodes (10): devDependencies, @playwright/test@^1.56.0, rollup@npm:@rollup/wasm-node@^4.68.0, @types/react@^19.2.0, @types/react-dom@^19.2.0, typescript@~5.9.3, rollup, @types/react (+2 more)
 
 ### Community 106 - "interface"
 Cohesion: 0.50
@@ -575,12 +583,8 @@ Cohesion: 0.50
 Nodes (4): Connection Pooling, Database Patterns, Read Replicas, Transaction Patterns
 
 ### Community 110 - "test_ears_umik.py"
-Cohesion: 0.16
-Nodes (13): ears_scene(), full_run(), ns(), test_phase_slope_of_same_clock_pair_equals_acoustic_delay(), test_recorder_file_checks(), test_recorder_refuses_repository_output(), test_same_clock_pair_keeps_acoustic_delay_and_separate_mic_is_aligned(), test_same_clock_track_is_written_unshifted() (+5 more)
-
-### Community 111 - "package.json"
-Cohesion: 0.05
-Nodes (35): HTTP 與 WebSocket 契約, REST, WebSocket, 狀態與恢復, dependencies, react-dom@^19.2.0, devDependencies, @playwright/test@^1.56.0 (+27 more)
+Cohesion: 0.18
+Nodes (12): ears_scene(), full_run(), ns(), test_phase_slope_of_same_clock_pair_equals_acoustic_delay(), test_recorder_file_checks(), test_recorder_refuses_repository_output(), test_same_clock_pair_keeps_acoustic_delay_and_separate_mic_is_aligned(), test_same_clock_track_is_written_unshifted() (+4 more)
 
 ### Community 112 - "design-tokens-starter.json"
 Cohesion: 0.15
@@ -599,16 +603,16 @@ Cohesion: 0.29
 Nodes (6): 保留 V1.2 的決定, 加工欄位對照, 執行限制, 模組, 系統與 PostgreSQL 設計, 表與不變條件
 
 ### Community 116 - "test_synthetic.py"
-Cohesion: 0.13
-Nodes (17): chirp_template(), detect_chirps(), _encode(), _run(), test_chirp_file_is_detected_once_at_pad(), test_missing_input_file_is_reported(), test_mixed_formats_with_chirps_are_verified(), test_without_chirp_falls_back_to_envelope_and_still_verifies() (+9 more)
+Cohesion: 0.26
+Nodes (9): expected_offset(), recordings(), _shift(), test_chirp_template_contract(), test_detects_chirps_in_machine_noise(), test_end_to_end_three_mics(), test_no_false_chirp_without_beep(), test_two_mic_envelope_fallback() (+1 more)
 
 ### Community 117 - "button"
 Cohesion: 0.20
 Nodes (10): fg, font-size, hover-bg, button, $type, $value, $type, $value (+2 more)
 
-### Community 118 - "_load_csv"
-Cohesion: 0.25
-Nodes (4): _load_csv(), _load_csv_snapshot(), _load_product_keywords(), _load_rows_or_empty()
+### Community 118 - "test_skill_script_paths.py"
+Cohesion: 0.38
+Nodes (3): resolve(), shipped_invocations(), SkillScriptPathsTest
 
 ### Community 119 - "CNC Acoustic Lab 開發與版本管理"
 Cohesion: 0.50
@@ -627,8 +631,8 @@ Cohesion: 0.40
 Nodes (5): AWS (ECS/Lambda), Deployment Platforms, Deployment Selection, Railway, Vercel
 
 ### Community 123 - "csv"
-Cohesion: 0.07
-Nodes (9): read_rows(), RtlDataContractTest, resolve(), shipped_invocations(), SkillScriptPathsTest, read_rows(), read_rows(), TestTextLayoutDataContracts (+1 more)
+Cohesion: 0.12
+Nodes (6): read_rows(), RtlDataContractTest, read_rows(), read_rows(), TestTextLayoutDataContracts, TestTextLayoutRetrieval
 
 ### Community 124 - "$type"
 Cohesion: 0.60
@@ -665,10 +669,6 @@ Nodes (4): Backend Frameworks, Framework Selection Guide, Node.js Ecosystem, Pyt
 ### Community 138 - "50"
 Cohesion: 0.67
 Nodes (4): $type, $value, 50, 50
-
-### Community 139 - "test_catalog_summary_line_endings.py"
-Cohesion: 0.09
-Nodes (5): CatalogSummaryLineEndingsTest, _load_generator(), TestFixtureValidation, TestMetricMath, TestThresholdGate
 
 ### Community 140 - "Authentication Solutions"
 Cohesion: 0.50
@@ -714,9 +714,17 @@ Nodes (5): CNC Acoustic Lab V1.5, HTTPS 與部署, 三支手機操作, 尚待正
 Cohesion: 0.67
 Nodes (4): padding-y, padding-y, $type, $value
 
+### Community 154 - "capture_effects"
+Cohesion: 0.29
+Nodes (3): capture_effects(), effects_status(), test_windows_effects_detection()
+
 ### Community 155 - "white"
 Cohesion: 0.67
 Nodes (3): white, $type, $value
+
+### Community 156 - "alignment_verdict"
+Cohesion: 0.29
+Nodes (5): test_verdict_same_clock_rules(), test_verdict_rejects_unmeasurable_or_large_residuals(), alignment_verdict(), complete(), _finite()
 
 ### Community 157 - "destructive"
 Cohesion: 0.67
@@ -746,23 +754,35 @@ Nodes (3): secondary-foreground, $type, $value
 Cohesion: 0.47
 Nodes (3): split_values(), style_identities(), TestStyleIdentityContract
 
+### Community 166 - "HTTP 與 WebSocket 契約"
+Cohesion: 0.33
+Nodes (5): HTTP 與 WebSocket 契約, REST, WebSocket, 狀態與恢復, ready()
+
+### Community 167 - "scripts"
+Cohesion: 0.33
+Nodes (6): scripts, build, build:pages, dev, test, test:unit
+
+### Community 171 - "CNC Acoustic Lab｜完整 SQL 資料字典 V1.2"
+Cohesion: 0.50
+Nodes (3): CNC Acoustic Lab｜完整 SQL 資料字典 V1.2, 特別注意事項, 目錄與用途
+
 ## Knowledge Gaps
-- **26 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **35 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `code_commit()` connect `worker.py` to `sys`?**
+- **Why does `code_commit()` connect `worker.py` to `json`?**
   _High betweenness centrality (0.056) - this node is a cross-community bridge._
 - **Are the 39 inferred relationships involving `yy()` (e.g. with `ad()` and `ah()`) actually correct?**
   _`yy()` has 39 INFERRED edges - model-reasoned connections that need verification._
 - **Should `App.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.05284831846259437 - nodes in this community are weakly interconnected._
-- **Why does `資料表（migration 004）` connect `worker.py` to `地端分析 worker：雲端只寫入，地端計算，資料表溝通`?**
+  _Cohesion score 0.050915211445402904 - nodes in this community are weakly interconnected._
+- **Why does `地端分析 worker：雲端只寫入，地端計算，資料表溝通` connect `地端分析 worker：雲端只寫入，地端計算，資料表溝通` to `worker.py`, `README.md`?**
   _High betweenness centrality (0.051) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `TailwindConfigGenerator` (e.g. with `TestGeneratedConfigIsValidJs` and `TestTailwindConfigGenerator`) actually correct?**
   _`TailwindConfigGenerator` has 2 INFERRED edges - model-reasoned connections that need verification._
 - **Should `ShadcnInstaller` be split into smaller, more focused modules?**
   _Cohesion score 0.053555750658472345 - nodes in this community are weakly interconnected._
-- **Why does `地端分析 worker：雲端只寫入，地端計算，資料表溝通` connect `地端分析 worker：雲端只寫入，地端計算，資料表溝通` to `README.md`, `worker.py`?**
+- **Why does `資料表（migration 004）` connect `worker.py` to `地端分析 worker：雲端只寫入，地端計算，資料表溝通`?**
   _High betweenness centrality (0.051) - this node is a cross-community bridge._
