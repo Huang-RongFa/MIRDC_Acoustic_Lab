@@ -16,8 +16,9 @@ def receive_type(ws, kind):
 
 
 def test_three_participants_prepare_start_stop_and_real_preview():
+    import time
     from contextlib import ExitStack
-    with TestClient(create_app(os.environ['TEST_DATABASE_URL'], countdown_seconds=0.05)) as c, ExitStack() as stack:
+    with TestClient(create_app(os.environ['TEST_DATABASE_URL'], countdown_seconds=0.05, finalization_seconds=0.05)) as c, ExitStack() as stack:
         host = c.post('/api/rooms', json={'name':'A'}).json()
         code = host['room_code']
         people = [host] + [c.post(f'/api/rooms/{code}/join', json={'name':s,'source_label':s}).json() for s in ['B','C']]
@@ -40,10 +41,11 @@ def test_three_participants_prepare_start_stop_and_real_preview():
             if index < 2:
                 ws.send_json({'type':'started','client_ms':1000,'performance_ms':100})
                 receive_type(ws,'state')
-        sockets[1].send_json({'type':'preview','samples':[0,0.25,-0.25]})
+        sockets[1].send_json({'type':'preview','samples':[0,0.25,-0.25],'right':[0,-0.5,0.5]})
         preview = receive_type(sockets[0],'preview')
         assert preview['source_label'] == 'B'
         assert preview['samples'] == [0,0.25,-0.25]
+        assert preview['right'] == [0,-0.5,0.5]
         state = c.get(f'/api/rooms/{code}',headers=headers).json()
         assert state['status'] == 'recording'
         assert state['started_at'] is not None
@@ -54,14 +56,20 @@ def test_three_participants_prepare_start_stop_and_real_preview():
         assert c.get(f'/api/rooms/{code}',headers=headers).json()['status'] == 'finalizing'
         sockets[2].send_json({'type':'started','client_ms':1000,'performance_ms':100})
         receive_type(sockets[2],'state')
+        time.sleep(0.15)
+        delayed=c.get(f'/api/rooms/{code}',headers=headers).json()
+        assert delayed['status']=='finalizing'
+        assert all(r['status']=='uploading' for r in delayed['recordings'])
         import hashlib
         for person in people:
             auth = {'Authorization':'Bearer '+person['token']}
             base = f"/api/rooms/{code}/recordings/{person['participant_id']}"
             data = b'webm-test-bytes-' + person['source_label'].encode()
             chunk_headers = {**auth,'Content-Type':'audio/webm;codecs=opus','X-Checksum':hashlib.sha256(data).hexdigest(),'X-Created-At':'1001'}
-            assert c.put(base+'/chunks/0',headers=chunk_headers,content=data).status_code == 200
-            assert c.put(base+'/chunks/0',headers=chunk_headers,content=data).status_code == 200
+            assert c.put(base+'/chunks/0',headers=chunk_headers,content=b'bad-checksum').status_code == 422
+            assert c.put(base+'/chunks/0',headers=chunk_headers,content=data).json() == {'ok':True,'duplicate':False}
+            assert c.put(base+'/chunks/0',headers=chunk_headers,content=data).json() == {'ok':True,'duplicate':True}
+            assert c.get(base+'/chunks',headers=auth).json()['chunks'] == [{'chunk_index':0,'checksum':chunk_headers['X-Checksum']}]
             assert c.put(base+'/chunks/0',headers={**chunk_headers,'X-Checksum':hashlib.sha256(b'conflict').hexdigest()},content=b'conflict').status_code == 409
             assert c.post(base+'/finish',headers=auth,json={'chunk_count':2,'client_ms':2000}).status_code == 409
             assert c.put(base+'/chunks/1',headers=chunk_headers,content=data).status_code == 200

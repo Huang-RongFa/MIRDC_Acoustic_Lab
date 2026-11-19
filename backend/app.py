@@ -107,8 +107,9 @@ def create_app(database_url=None, countdown_seconds=3, acknowledgement_seconds=1
         with db.transaction() as c:
             s = c.execute('SELECT * FROM recording_sessions WHERE room_id=%s FOR UPDATE', (room_id,)).fetchone()
             if finalizing and s['status']=='finalizing':
-                c.execute("UPDATE participant_recordings SET status='failed',error='停止後尚未完成上傳；請回原設備補傳' WHERE session_id=%s AND stopped_at IS NULL", (s['id'],))
-                c.execute("UPDATE recording_sessions SET status='interrupted' WHERE id=%s", (s['id'],))
+                c.execute("UPDATE participant_recordings SET error='尚未完成封存；請保留原設備的網站資料以便補傳' WHERE session_id=%s AND stopped_at IS NULL AND status='uploading'", (s['id'],))
+                if s['started_at'] is None:
+                    c.execute("UPDATE recording_sessions SET status='interrupted' WHERE id=%s", (s['id'],))
             elif not finalizing and s['status']=='recording':
                 c.execute("UPDATE participant_recordings SET status='failed',error='未收到實際開始確認，不能確認此手機已錄音' WHERE session_id=%s AND actual_started_at IS NULL", (s['id'],))
             else:
@@ -240,6 +241,7 @@ def create_app(database_url=None, countdown_seconds=3, acknowledgement_seconds=1
             if s['status'] not in ('recording','preparing','countdown'):
                 raise HTTPException(409, '尚未開始')
             c.execute("UPDATE recording_sessions SET status='finalizing',stopped_at=%s WHERE id=%s", (time.time()*1000,s['id']))
+            c.execute("UPDATE participant_recordings SET status='uploading' WHERE session_id=%s AND status='recording'", (s['id'],))
         await broadcast(p['room_id'], {'type':'stop','session_id':str(s['id'])})
         await publish(p['room_id'])
         schedule(check_acknowledgements(p['room_id'], finalizing=True))
@@ -285,9 +287,12 @@ def create_app(database_url=None, countdown_seconds=3, acknowledgement_seconds=1
                     continue
                 if kind == 'preview':
                     samples = m.get('samples')
-                    if time.monotonic()-preview_at >= 0.18 and isinstance(samples,list) and 1 <= len(samples) <= 256 and all(type(x) in (int,float) and math.isfinite(x) and -1<=x<=1 for x in samples):
+                    right = m.get('right')
+                    def valid_wave(values):
+                        return isinstance(values,list) and 1 <= len(values) <= 256 and all(type(x) in (int,float) and -1<=x<=1 for x in values)
+                    if time.monotonic()-preview_at >= 0.18 and valid_wave(samples) and (right is None or (valid_wave(right) and len(right)==len(samples))):
                         preview_at=time.monotonic()
-                        await broadcast(p['room_id'], {'type':'preview','source_label':p['source_label'],'samples':samples,'server_ms':time.time()*1000})
+                        await broadcast(p['room_id'], {'type':'preview','source_label':p['source_label'],'samples':samples,'right':right,'server_ms':time.time()*1000})
                     continue
                 start_countdown = False
                 with db.transaction() as c:

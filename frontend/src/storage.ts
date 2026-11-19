@@ -20,6 +20,14 @@ export async function getCapture(key:string):Promise<Capture|undefined>{
 export async function chunks(key:string):Promise<Chunk[]>{
   const db=await database();return new Promise((resolve,reject)=>{const r=db.transaction('chunks').objectStore('chunks').getAll(IDBKeyRange.bound(key+':',key+':\uffff'));r.onsuccess=()=>resolve((r.result as Chunk[]).sort((a,b)=>a.index-b.index));r.onerror=()=>reject(r.error);});
 }
+export async function getChunk(key:string,index:number):Promise<Chunk|undefined>{
+  const db=await database();
+  return new Promise((resolve,reject)=>{
+    const request=db.transaction('chunks').objectStore('chunks').get(key+':'+index);
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error);
+  });
+}
 export async function saveChunk(chunk:Chunk,capture:Capture){
   const db=await database();return new Promise<void>((resolve,reject)=>{const tx=db.transaction(['chunks','captures'],'readwrite');tx.objectStore('chunks').put(chunk);tx.objectStore('captures').put(capture);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});
 }

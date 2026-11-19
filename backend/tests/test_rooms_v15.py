@@ -107,5 +107,5 @@ def test_missing_start_ack_and_finish_are_reported_without_automatic_stop():
         assert c.post(path+'/stop',headers=auth).status_code==200
         time.sleep(0.15)
         state=c.get(path,headers=auth).json()
-        assert state['status']=='interrupted'
+        assert state['status']=='finalizing'
         assert all(r['error'] for r in state['recordings'])
