@@ -10,6 +10,7 @@ export class RecorderDevice {
   analyser:AnalyserNode|null=null;
   private rightAnalyser:AnalyserNode|null=null;
   private monoOutput:MediaStreamAudioDestinationNode|null=null;
+  private authorizing=false;
   channelCount:1|2=1;
   private inputSettings:MediaTrackSettings|null=null;
   private inputCapabilities:MediaTrackCapabilities|null=null;
@@ -42,47 +43,56 @@ export class RecorderDevice {
 
   async authorize(channels:1|2=1){
     if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error('此瀏覽器需 HTTPS 及 MediaRecorder 支援');
-    if(this.stream?.getAudioTracks().some(t=>t.readyState==='live')&&this.channelCount===channels)return;
-    if(this.recorder&&this.recorder.state!=='inactive')throw new Error('錄音中無法切換聲道');
-    this.stream?.getTracks().forEach(track=>track.stop());
-    this.monoOutput?.stream.getTracks().forEach(track=>track.stop());
-    this.monoOutput=null;
-    if(this.context)await this.context.close().catch(()=>{});
-    this.stream=null;
-    this.context=null;
-    this.analyser=null;
-    this.rightAnalyser=null;
+    if(this.disposed||this.authorizing||this.startPending||(this.recorder&&this.recorder.state!=='inactive')||
+      (this.room&&this.room.status!=='waiting'))throw new Error('目前無法切換錄音聲道');
+    this.authorizing=true;
     try{
+      if(this.stream?.getAudioTracks().some(t=>t.readyState==='live')&&this.channelCount===channels&&this.context){
+        await this.resumePreview();
+        this.recordingStream();
+        this.send({type:'mic',mic:true});
+        return;
+      }
+      this.send({type:'mic',mic:false});
+      this.releaseInput();
       this.stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:channels===2?{exact:2}:{ideal:1},echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
+      if(this.disposed)throw new Error('已離開錄音工作階段');
       const track=this.stream.getAudioTracks()[0];
       this.inputSettings=track.getSettings();
       this.inputCapabilities=track.getCapabilities?.()??null;
-      if(channels===2&&this.inputSettings.channelCount!==2)throw new Error('瀏覽器未確認雙聲道輸入，請使用支援 Stereo 的裝置或選擇 Mono');
-      this.channelCount=channels;
+      const inputChannels=this.inputSettings.channelCount;
+      if(channels===2&&inputChannels!==2)throw new Error('瀏覽器未確認雙聲道輸入，請使用支援 Stereo 的裝置或選擇 Mono');
+      if(!inputChannels)throw new Error('瀏覽器未回報麥克風聲道數，無法確認錄音聲道');
       this.processing=summarizeProcessing(this.inputSettings);
-      this.context=new AudioContext();
-      void this.context.resume().catch(()=>{});
-      this.analyser=this.context.createAnalyser();this.analyser.fftSize=512;
-      const source=this.context.createMediaStreamSource(this.stream);
+      const context=this.context=new AudioContext();
+      this.analyser=context.createAnalyser();this.analyser.fftSize=512;
+      const source=context.createMediaStreamSource(this.stream);
       if(channels===2){
-        const splitter=this.context.createChannelSplitter(2);
-        this.rightAnalyser=this.context.createAnalyser();
+        const splitter=context.createChannelSplitter(2);
+        this.rightAnalyser=context.createAnalyser();
         this.rightAnalyser.fftSize=512;
         source.connect(splitter);
         splitter.connect(this.analyser,0);
         splitter.connect(this.rightAnalyser,1);
-      }else if((this.inputSettings.channelCount??1)>1){
-        // Some drivers ignore Mono constraints. Keep input channel 0, without mixing channels.
-        const splitter=this.context.createChannelSplitter(this.inputSettings.channelCount);
-        this.monoOutput=this.context.createMediaStreamDestination();
+      }else if(inputChannels>1){
+        // The speaker downmix averages stereo L/R. The meter and encoder receive the same mono bus.
+        const mono=context.createGain();
+        mono.channelCount=1;
+        mono.channelCountMode='explicit';
+        mono.channelInterpretation='speakers';
+        this.monoOutput=context.createMediaStreamDestination();
         this.monoOutput.channelCount=1;
-        source.connect(splitter);
-        splitter.connect(this.analyser,0);
-        splitter.connect(this.monoOutput,0);
-        this.context.onstatechange=()=>{
-          if(this.context?.state!=='running'&&this.recorder?.state==='recording')this.fail('單聲道擷取的音訊處理暫停');
+        source.connect(mono);
+        mono.connect(this.analyser);
+        mono.connect(this.monoOutput);
+        context.onstatechange=()=>{
+          if(context.state!=='running'&&this.recorder?.state==='recording')this.fail('單聲道擷取的音訊處理暫停');
         };
       }else source.connect(this.analyser);
+      await this.resumePreview();
+      if(this.disposed||track.readyState!=='live')throw new Error('麥克風已停止，請重新授權');
+      this.channelCount=channels;
+      this.recordingStream();
       track.onended=()=>{
         if(!this.saving&&!this.capture?.done)this.fail('麥克風已停止，錄音可能不完整');
       };
@@ -92,16 +102,55 @@ export class RecorderDevice {
       this.send({type:'mic',mic:true});
       this.report(this.processing?.raw===true?'麥克風已授權（原始收音）；確認波形後按下準備完成':'麥克風已授權，但'+processingLabel(this.processing)+'；可繼續錄音，分析時會標記');
     }catch(error){
-      this.stream?.getTracks().forEach(track=>track.stop());this.stream=null;
-      this.fail('麥克風無法使用：'+(error as Error).message);throw error;
+      this.releaseInput();
+      if(!this.disposed)this.fail('麥克風無法使用：'+(error as Error).message);
+      throw error;
+    }finally{
+      this.authorizing=false;
     }
   }
+  async resumePreview(){
+    const context=this.context;
+    if(!context)return;
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    try{
+      await Promise.race([context.resume(),new Promise<never>((_,reject)=>{
+        timer=setTimeout(()=>reject(new Error('音訊處理啟動逾時，請點選重新授權')),5000);
+      })]);
+      if(context.state!=='running')throw new Error('音訊處理未啟動，請點選重新授權');
+    }finally{clearTimeout(timer);}
+  }
+  private releaseInput(){
+    for(const track of [...(this.stream?.getTracks()??[]),...(this.monoOutput?.stream.getTracks()??[])]){
+      track.onended=track.onmute=track.onunmute=null;
+      track.stop();
+    }
+    const context=this.context;
+    this.stream=this.context=this.analyser=this.rightAnalyser=this.monoOutput=null;
+    this.recorder=null;
+    this.inputSettings=this.inputCapabilities=this.processing=null;
+    if(context){
+      context.onstatechange=null;
+      void context.close().catch(()=>{});
+    }
+  }
+  private recordingStream(){
+    const input=this.stream?.getAudioTracks()[0];
+    const stream=this.monoOutput?.stream??this.stream;
+    const output=stream?.getAudioTracks()[0];
+    if(!stream||input?.readyState!=='live'||output?.readyState!=='live')throw new Error('請重新授權麥克風並保持此頁在前景');
+    if(input.getSettings().channelCount!==this.inputSettings?.channelCount||output.getSettings().channelCount!==this.channelCount)
+      throw new Error('無法確認錄音聲道，請重新授權麥克風');
+    if(this.monoOutput&&this.context?.state!=='running')throw new Error('請回前景重新啟用單聲道擷取');
+    return stream;
+  }
   samples(analyser=this.analyser){
-    if(!analyser||this.context?.state!=='running')return null;
+    if(this.authorizing||!analyser||this.context?.state!=='running')return null;
     const values=new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(values);
     return Array.from({length:values.length/4},(_,i)=>Math.max(-1,Math.min(1,values[i*4])));
   }
+  get microphoneReady(){return !this.authorizing&&!!this.stream?.getAudioTracks().some(track=>track.readyState==='live');}
   rightSamples(){return this.rightAnalyser?this.samples(this.rightAnalyser):null;}
   private fail(message:string){
     if(this.capture&&!this.capture.done&&!this.interrupted){
@@ -114,14 +163,12 @@ export class RecorderDevice {
   }
   background(){if(this.recorder?.state==='recording')this.report('手機進入背景或鎖定，請回前景確認錄音狀態');}
   async prepare(){
-    if(!this.stream?.getAudioTracks().some(t=>t.readyState==='live'))throw new Error('請重新授權麥克風並保持此頁在前景');
     const mime=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus'].find(m=>MediaRecorder.isTypeSupported(m));
     if(!mime)throw new Error('瀏覽器沒有支援的錄音格式');
     if(await getCapture(this.key))throw new Error('此 Session 已有本機錄音，請建立新房間');
-    if(this.monoOutput&&this.context?.state!=='running')throw new Error('請回前景重新啟用單聲道擷取');
-    const input=this.stream.getAudioTracks()[0].getSettings();
-    if(this.channelCount===2&&input.channelCount!==2)throw new Error('麥克風已失去雙聲道輸入');
-    const recordingStream=this.monoOutput?.stream??this.stream;
+    if(this.authorizing)throw new Error('麥克風仍在重新授權，請稍後再開始');
+    const recordingStream=this.recordingStream();
+    const input=this.stream!.getAudioTracks()[0].getSettings();
     this.recorder=new MediaRecorder(recordingStream,{mimeType:mime});
     const settings=recordingStream.getAudioTracks()[0].getSettings();
     this.processing=summarizeProcessing(input);
@@ -132,6 +179,7 @@ export class RecorderDevice {
   async start(){
     if(this.startPending||this.capture||this.recorder?.state==='recording')return;
     if(!this.recorder)throw new Error('未完成裝置準備，無法開始');
+    this.recordingStream();
     this.stoppedByHost=false;
     this.chirps=[];
     this.capture={key:this.key,count:0,mime:this.recorder.mimeType,started:Date.now(),performance:performance.now(),done:false,interrupted:false,processing:this.processing,chirps:[]};
@@ -300,5 +348,5 @@ export class RecorderDevice {
       uploadState:this.uploadState};
   }
   async downloadLocal(){const parts=await chunks(this.key);if(!parts.length)throw new Error('目前沒有已保存音訊');const mime=parts[0].blob.type;const url=URL.createObjectURL(new Blob(parts.map(c=>c.blob),{type:mime}));const a=document.createElement('a');a.href=url;a.download='local-'+this.identity.source_label+(mime.includes('mp4')?'.m4a':mime.includes('ogg')?'.ogg':'.webm');a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}
-  dispose(){this.disposed=true;clearTimeout(this.retryTimer);if(this.recorder&&this.recorder.state!=='inactive'){this.fail('離開錄音工作階段');this.recorder.stop();}this.stream?.getTracks().forEach(t=>{t.onended=null;t.onmute=null;t.stop();});this.monoOutput?.stream.getTracks().forEach(t=>t.stop());if(this.context)this.context.onstatechange=null;void this.context?.close();}
+  dispose(){this.disposed=true;clearTimeout(this.retryTimer);if(this.recorder&&this.recorder.state!=='inactive'){this.fail('離開錄音工作階段');this.recorder.stop();}this.releaseInput();}
 }
