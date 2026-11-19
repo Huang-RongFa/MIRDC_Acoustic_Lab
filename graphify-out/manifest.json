@@ -474,9 +474,9 @@
     "semantic_hash": ""
   },
   "frontend/tests/recording.spec.ts": {
-    "mtime": 1795073987.657068,
-    "seen": 1795074154.1489675,
-    "ast_hash": "af28a443edd96edf7352f1362f7afebb",
+    "mtime": 1795074293.4095335,
+    "seen": 1795074331.566764,
+    "ast_hash": "e8c1bd1826fdffcebbf0d08bcdb6323e",
     "semantic_hash": ""
   },
   "frontend/tsconfig.json": {
