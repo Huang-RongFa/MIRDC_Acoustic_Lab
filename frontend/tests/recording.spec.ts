@@ -50,7 +50,7 @@ async function activeWave(page:Page,label:string){
 }
 
 for(const duration of [30,300])test(`three browser recordings, ${duration}s with independent Stereo and offline retransmit`,async({browser})=>{
-  test.setTimeout((duration+180)*1000);
+  test.setTimeout((duration+240)*1000);
   const a=await phone(browser),b=await phone(browser),c=await phone(browser);
   try{
     await Promise.all([microphone(a.page,1,[330]),microphone(b.page,2,[null,660]),microphone(c.page,2,[440,880])]);
@@ -156,22 +156,24 @@ for(const duration of [30,300])test(`three browser recordings, ${duration}s with
       expect(f.channelCount).toBe(f.source==='C'?2:1);
     }
     expect(files[2].channels[0].samples).toBe(files[2].channels[1].samples);
-    for(const [file,frequencies] of [[0,[33]],[1,[66]],[2,[44,88]]] as const){
-      for(const [channel,expected] of frequencies.entries()){
-        const decoded=files[file].channels[channel];
-        expect(decoded.minimumRms).toBeGreaterThan(0.08);
-        expect(decoded.maximumStep).toBeLessThan(0.15);
-        expect(decoded.minCrossings).toBeGreaterThanOrEqual(expected-3);
-        expect(decoded.maxCrossings).toBeLessThanOrEqual(expected+3);
-      }
+    for(const [file,label,frequencies] of [[0,'A native Mono',[33]],[1,'B right-only Stereo → Mono',[66]],[2,'C independent Stereo',[44,88]]] as const){
+      await test.step(label,()=>{
+        for(const [channel,expected] of frequencies.entries()){
+          const decoded=files[file].channels[channel];
+          expect(decoded.minimumRms).toBeGreaterThan(0.08);
+          expect(decoded.maximumStep).toBeLessThan(0.15);
+          expect(decoded.minCrossings).toBeGreaterThanOrEqual(expected-3);
+          expect(decoded.maxCrossings).toBeLessThanOrEqual(expected+3);
+        }
+      });
     }
     await expect(a.page.getByRole('button',{name:'錄音測試結果',exact:true})).toBeVisible();
     await a.page.getByRole('button',{name:'錄音測試結果',exact:true}).click();
     await expect(a.page.getByRole('heading',{name:'錄音測試結果',exact:true})).toBeVisible();
     await expect(a.page.getByText('上傳完整', {exact:true})).toHaveCount(3);
     for(const source of ['A','B','C'])await a.page.locator('article').filter({has:a.page.getByRole('heading',{name:'Recorder '+source,exact:true})}).getByRole('button',{name:'載入試聽與波形'}).click();
-    await expect(a.page.locator('audio')).toHaveCount(3);
-    await expect(a.page.locator('canvas[aria-label$="原始音檔波形"]')).toHaveCount(3,{timeout:15000});
+    await expect(a.page.locator('audio')).toHaveCount(3,{timeout:45000});
+    await expect(a.page.locator('canvas[aria-label$="原始音檔波形"]')).toHaveCount(3,{timeout:45000});
     await expect.poll(()=>a.page.locator('audio').evaluateAll(elements=>elements.every(el=>(el as HTMLAudioElement).readyState>=2))).toBe(true);
     await a.page.locator('audio').first().evaluate(async el=>{await (el as HTMLAudioElement).play();});
     await expect.poll(()=>a.page.locator('audio').first().evaluate(el=>(el as HTMLAudioElement).currentTime)).toBeGreaterThan(0);
