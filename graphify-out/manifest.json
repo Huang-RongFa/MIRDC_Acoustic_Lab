@@ -438,9 +438,9 @@
     "semantic_hash": ""
   },
   "frontend/src/capture.ts": {
-    "mtime": 1795059241.3746963,
-    "seen": 1795059280.1737888,
-    "ast_hash": "8fb1cdfd9df5a54143ca1c8872694455",
+    "mtime": 1795059602.3988228,
+    "seen": 1795059669.4046197,
+    "ast_hash": "1f32c1efad7b1d58ea3a1f98a437eead",
     "semantic_hash": ""
   },
   "frontend/src/fields.ts": {
@@ -474,9 +474,9 @@
     "semantic_hash": ""
   },
   "frontend/tests/recording.spec.ts": {
-    "mtime": 1795059278.8732753,
-    "seen": 1795059280.1798878,
-    "ast_hash": "e3f62683d86c8d13bb3299169c03fd6c",
+    "mtime": 1795059553.037592,
+    "seen": 1795059669.413252,
+    "ast_hash": "f88febdf9849d2d7c6576b3e41f0351e",
     "semantic_hash": ""
   },
   "frontend/tsconfig.json": {
@@ -1008,9 +1008,9 @@
     "semantic_hash": ""
   },
   "frontend/tests/recovery.spec.ts": {
-    "mtime": 1795059063.7121036,
-    "seen": 1795059121.5647378,
-    "ast_hash": "a8c6cbea5a40ea3e030818d3d500a0e8",
+    "mtime": 1795059641.3375745,
+    "seen": 1795059669.413252,
+    "ast_hash": "f8366c173b01111e510c7c56e093d399",
     "semantic_hash": ""
   },
   "scripts/run-backend.ps1": {

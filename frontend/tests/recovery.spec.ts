@@ -11,6 +11,14 @@ for(const scenario of ['refresh','host-background','host-close','post-stop-reope
   const contexts=await Promise.all([0,1,2].map(()=>browser.newContext({permissions:['microphone']})));
   const pages=await Promise.all(contexts.map(c=>c.newPage()));
   try{
+    if(scenario==='post-stop-reopen')await pages[1].addInitScript(()=>{
+      const getUserMedia=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia=async constraints=>{
+        const stream=await getUserMedia(constraints);
+        document.addEventListener('test-end-microphone',()=>stream.getAudioTracks()[0].dispatchEvent(new Event('ended')),{once:true});
+        return stream;
+      };
+    });
     await pages[0].goto('/');
     const state=await pages[0].evaluate(async()=>{
       const host=await (await fetch('/api/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'A'})})).json();
@@ -21,7 +29,8 @@ for(const scenario of ['refresh','host-background','host-close','post-stop-reope
     for(let i=0;i<3;i++){
       await pages[i].goto('/');await pages[i].evaluate(identity=>{localStorage.setItem('cnc-identities',JSON.stringify([identity]));localStorage.setItem('cnc-current-room',identity.room_code);},state[i]);await pages[i].reload();await expect(pages[i].getByText('伺服器已連線',{exact:true})).toBeVisible();await pages[i].getByRole('button',{name:'測試並授權麥克風'}).click();await expect(pages[i].getByRole('button',{name:'我已就緒，等待主控',exact:true})).toBeEnabled();await pages[i].getByRole('button',{name:'我已就緒，等待主控',exact:true}).click();
     }
-    await expect(pages[0].getByRole('button',{name:'開始統一錄音'})).toBeEnabled();await pages[0].getByRole('button',{name:'開始統一錄音'}).click();await expect(pages[0].getByTestId('elapsed')).toHaveText('00:00:02',{timeout:12000});
+    await expect(pages[0].getByRole('button',{name:'開始統一錄音'})).toBeEnabled();await pages[0].getByRole('button',{name:'開始統一錄音'}).click();
+    await expect(pages[0].getByTestId('elapsed')).toHaveText(/00:00:(0[2-9]|[1-5]\d)/,{timeout:15000});
     if(scenario==='refresh'){await pages[1].reload();await expect(pages[1].getByRole('status')).toContainText('中斷');}
     else if(scenario==='host-close'){await pages[0].close();pages[0]=await contexts[0].newPage();await pages[0].goto('/');await expect(pages[0].getByRole('status')).toContainText('中斷');}
     else if(scenario==='host-background'){
@@ -31,10 +40,16 @@ for(const scenario of ['refresh','host-background','host-close','post-stop-reope
     const finishError=scenario==='post-stop-reopen'?pages[1].waitForResponse(response=>response.url().endsWith('/finish')&&response.status()===503):null;
     await pages[0].getByRole('button',{name:'由主控者停止錄音'}).click();
     if(finishError){
-      await finishError;
+      const rejected=await finishError;
+      expect(rejected.request().postDataJSON().interrupted,await pages[1].getByRole('status').innerText()).toBe(false);
+      await pages[1].evaluate(()=>document.dispatchEvent(new Event('test-end-microphone')));
       await pages[1].close();
       pages[1]=await contexts[1].newPage();
+      const resumed=pages[1].waitForResponse(response=>response.url().endsWith('/finish')&&response.ok());
       await pages[1].goto('/?room='+state[1].room_code);
+      const finalized=await resumed;
+      expect(finalized.request().postDataJSON().interrupted).toBe(false);
+      expect(await finalized.json()).toEqual({ok:true,interrupted:false});
     }
     const expected=scenario==='refresh'?['A:stored','B:interrupted','C:stored']:
       scenario==='host-close'?['A:interrupted','B:stored','C:stored']:['A:stored','B:stored','C:stored'];

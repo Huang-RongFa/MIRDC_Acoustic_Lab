@@ -83,7 +83,9 @@ export class RecorderDevice {
           if(this.context?.state!=='running'&&this.recorder?.state==='recording')this.fail('單聲道擷取的音訊處理暫停');
         };
       }else source.connect(this.analyser);
-      track.onended=()=>this.fail('麥克風已停止，錄音可能不完整');
+      track.onended=()=>{
+        if(!this.saving&&!this.capture?.done)this.fail('麥克風已停止，錄音可能不完整');
+      };
       track.onmute=()=>{if(this.recorder?.state==='recording')this.fail('麥克風被系統暫停，錄音可能中斷');};
       track.onunmute=()=>{if(this.recorder?.state==='recording')this.report('麥克風已恢復收音');};
       void navigator.storage?.persist?.().catch(()=>{});

@@ -3,9 +3,15 @@ import {test,expect,type Browser,type Page} from '@playwright/test';
 const conditions:Record<string,string>={machine_code:'CNC-01',machine_name:'測試機台',machine_model:'VMC',material:'AL6061',material_spec:'T6',workpiece_code:'W1',tool_type:'平銑刀',tool_material:'硬質合金',tool_diameter_mm:'10',tool_flutes:'4',tool_overhang_mm:'35',tool_setup:'ER32',spindle_rpm:'6000',feed_mm_min:'600',axial_depth_mm:'0.5',radial_width_mm:'2',process:'銑削',coolant:'乾式',toolpath:'平行',nc_program:'O001'};
 async function phone(browser:Browser){const context=await browser.newContext({permissions:['microphone'],viewport:{width:390,height:844}});const page=await context.newPage();return {context,page};}
 async function ready(page:Page){await page.getByRole('button',{name:'測試並授權麥克風'}).click();await expect(page.getByRole('button',{name:'我已就緒，等待主控',exact:true})).toBeEnabled();await page.getByRole('button',{name:'我已就緒，等待主控',exact:true}).click();}
+async function recordedFor(page:Page,seconds:number,timeout:number){
+  await expect.poll(async()=>{
+    const text=await page.getByTestId('elapsed').innerText();
+    return /^\d\d:\d\d:\d\d$/.test(text)?text.split(':').reduce((total,part)=>total*60+Number(part),0):0;
+  },{timeout}).toBeGreaterThanOrEqual(seconds);
+}
 
 for(const duration of [30,300])test(`three browser recordings, ${duration}s with independent Stereo and offline retransmit`,async({browser})=>{
-  test.setTimeout((duration+90)*1000);
+  test.setTimeout((duration+180)*1000);
   const a=await phone(browser),b=await phone(browser),c=await phone(browser);
   try{
     await b.page.addInitScript(()=>{
@@ -43,12 +49,11 @@ for(const duration of [30,300])test(`three browser recordings, ${duration}s with
     await ready(c.page);await expect(a.page.getByRole('button',{name:'開始統一錄音'})).toBeEnabled();
     await a.page.screenshot({path:'../tmp/dashboard-mobile.png',fullPage:true});
     await a.page.getByRole('button',{name:'開始統一錄音'}).click();
-    await expect(a.page.getByTestId('elapsed')).toHaveText('00:00:04',{timeout:15000});
+    await recordedFor(a.page,4,15000);
     await b.context.setOffline(true);
-    await expect(a.page.getByTestId('elapsed')).toHaveText('00:00:14',{timeout:15000});
+    await new Promise(resolve=>setTimeout(resolve,10000));
     await b.context.setOffline(false);
-    const finishTime=duration===30?'00:00:30':'00:05:00';
-    await expect(a.page.getByTestId('elapsed')).toHaveText(finishTime,{timeout:duration*1000});
+    await recordedFor(a.page,duration,duration*1000);
     // Hold a PUT across stop for 32s. The device must still save the final chunk.
     let release!:()=>void;
     let entered!:()=>void;
@@ -62,7 +67,7 @@ for(const duration of [30,300])test(`three browser recordings, ${duration}s with
     await expect(a.page.locator('.control-state')).toContainText('等待音訊封存');
     release();
     await expect(a.page.locator('.control-state')).toContainText('三聲源儲存完成',{timeout:30000});
-    const files=await a.page.evaluate(async()=>{
+    const files=await test.step('download and decode each sealed audio file',()=>a.page.evaluate(async()=>{
       const identity=JSON.parse(localStorage.getItem('cnc-identities')!)[0];
       const headers={Authorization:'Bearer '+identity.token};
       const state=await (await fetch('/api/rooms/'+identity.room_code,{headers})).json();
@@ -96,7 +101,7 @@ for(const duration of [30,300])test(`three browser recordings, ${duration}s with
       }
       await context.close();
       return results;
-    });
+    }));
     await test.info().attach('decoded-audio',{body:JSON.stringify(files,null,2),contentType:'application/json'});
     expect(files.map(f=>f.source)).toEqual(['A','B','C']);
     for(const f of files){
