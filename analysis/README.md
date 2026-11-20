@@ -18,6 +18,8 @@
 | `tests/test_background.py` | 背景檢查的測試（6 項，合成資料、答案已知） |
 | `tests/test_ears_umik.py` | 雙聲道同一時鐘＋獨立時鐘麥克風的測試（11 項，不需要接上裝置） |
 | `tests/test_worker.py` | worker 的資料庫整合測試（每個測試建新資料庫，用最小權限帳號跑） |
+| `track_analysis/` | 地端外部分析：照《外部音訊分析系統對接規格》（2026-11-17）讀取各裝置封存音檔，逐聲道算 Spectrogram／MFCC，寫回共用資料庫的 `recording_tracks`、`track_analysis_runs`、`track_analysis_artifacts`。說明見 [`docs/external-track-analysis.md`](../docs/external-track-analysis.md)。**結果表的測試 DDL 是照規格重建的，還沒對真實網站跑過** |
+| `tests/test_track_signal.py`、`tests/test_track_publish.py` | 外部分析的參數契約測試（9 項）與資料庫整合測試（18 項） |
 | `requirements.txt` | numpy、scipy、soundfile、matplotlib、psycopg（worker 用）、imageio-ffmpeg（沒有系統 ffmpeg 時） |
 
 ## 用法
