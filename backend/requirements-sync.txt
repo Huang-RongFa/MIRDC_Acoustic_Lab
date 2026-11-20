@@ -1,0 +1,3 @@
+# Optional offline recording synchronization; the web backend does not import it.
+numpy>=2.0,<3
+scipy>=1.14,<2

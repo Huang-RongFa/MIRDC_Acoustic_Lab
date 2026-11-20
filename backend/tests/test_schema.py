@@ -8,8 +8,8 @@ from backend.app import create_app
 
 def test_legacy_tables_are_preserved_and_cross_room_recordings_are_rejected():
     url=os.environ['TEST_DATABASE_URL']
-    with TestClient(create_app(url)) as client:
-        first=client.post('/api/rooms',json={'name':'first'}).json()
+    with TestClient(create_app(url),client=('127.0.0.1',50000)) as client:
+        first=client.post('/api/rooms',json={'name':'first','record_as_host':True}).json()
         second=client.post('/api/rooms',json={'name':'second'}).json()
         with psycopg.connect(url) as c:
             legacy=c.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'").fetchone()[0]
@@ -26,8 +26,8 @@ def test_legacy_tables_are_preserved_and_cross_room_recordings_are_rejected():
 def test_chunk_identity_and_size_are_queryable_without_custom_search_path():
     import hashlib
     url=os.environ['TEST_DATABASE_URL']
-    with TestClient(create_app(url)) as client:
-        host=client.post('/api/rooms',json={'name':'A'}).json()
+    with TestClient(create_app(url),client=('127.0.0.1',50000)) as client:
+        host=client.post('/api/rooms',json={'name':'A','record_as_host':True}).json()
         with psycopg.connect(url) as c:
             data=b'transport-fixture-not-real-audio'
             c.execute('INSERT INTO mobile_capture.audio_chunks(session_id,participant_id,chunk_index,mime_type,created_at,checksum,audio_data) VALUES(%s,%s,0,%s,1000,%s,%s)',(host['session_id'],host['participant_id'],'audio/webm',hashlib.sha256(data).hexdigest(),data))

@@ -14,7 +14,7 @@
     "react-dom": "^19.2.0"
   },
   "overrides": {
-    "rollup": "npm:@rollup/wasm-node@4.68.0"
+    "rollup": "$rollup"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
