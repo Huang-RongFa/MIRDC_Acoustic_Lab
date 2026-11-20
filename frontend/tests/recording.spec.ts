@@ -40,6 +40,10 @@ test('three independent browser recordings, offline retransmit and restored hist
     await a.page.screenshot({path:'../tmp/results-mobile.png',fullPage:true});
     await a.page.reload();await expect(a.page.locator('.control-state')).toContainText('三聲源儲存完成');
     await a.page.getByRole('button',{name:'實驗紀錄',exact:true}).click();await a.page.getByRole('button',{name:new RegExp(code+' ·')}).click();await expect(a.page.getByRole('button',{name:'下載原始音檔'})).toHaveCount(3);
+    // 三聲源封存完成時，migration 004 的 trigger 排入地端分析；網頁只顯示佇列狀態，不產生結果
+    await a.page.getByRole('button',{name:'分析結果',exact:true}).click();
+    await expect(a.page.getByTestId('analysis-job')).toHaveText(/等待地端分析/);
+    await expect(a.page.getByTestId('alignment-verdict')).toHaveCount(0);
     expect(await a.page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   }finally{await a.context.close();await b.context.close();await c.context.close();}
 });

@@ -1,5 +1,7 @@
+import type {ProcessingReport} from './audioSettings';
 export type Chunk={key:string;capture:string;index:number;blob:Blob;checksum:string;created:number;uploaded:boolean};
-export type Capture={key:string;count:number;mime:string;started:number;performance:number;done:boolean;interrupted:boolean;stopped?:number;duration?:number;sealed?:boolean};
+export type ChirpEvent={epoch_ms:number;performance_ms:number;context_s:number};
+export type Capture={key:string;count:number;mime:string;started:number;performance:number;done:boolean;interrupted:boolean;stopped?:number;duration?:number;sealed?:boolean;processing?:ProcessingReport|null;chirps?:ChirpEvent[]};
 let connection:Promise<IDBDatabase>;
 function database(){
   return connection??=new Promise((resolve,reject)=>{

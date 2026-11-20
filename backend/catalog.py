@@ -25,4 +25,7 @@ def register_catalog(app):
     def analysis(code:str,authorization:str|None=Header(None)):
         with db.transaction() as c:
             p=authorize(c,code,authorization)
-            return {'results':c.execute('SELECT a.id,a.result,a.created_at FROM analysis_results a JOIN recording_sessions s ON s.id=a.session_id WHERE s.room_id=%s ORDER BY a.created_at DESC',(p['room_id'],)).fetchall()}
+            results=c.execute('SELECT a.id,a.result,a.created_at FROM analysis_results a JOIN recording_sessions s ON s.id=a.session_id WHERE s.room_id=%s ORDER BY a.created_at DESC',(p['room_id'],)).fetchall()
+            # 地端分析 worker 的佇列狀態；worker_id 與租約屬於內部資訊，不回給手機
+            jobs=c.execute('SELECT j.id,j.status,j.attempts,j.max_attempts,j.error,j.created_at,j.started_at,j.finished_at FROM analysis_jobs j JOIN recording_sessions s ON s.id=j.session_id WHERE s.room_id=%s ORDER BY j.created_at DESC',(p['room_id'],)).fetchall()
+            return {'results':results,'jobs':jobs}

@@ -34,7 +34,7 @@ Chunk headers：`Content-Type` 必須符合 prepared 的 MIME；`X-Checksum` 是
 |---|---|
 | `mic` | `{mic:true}`，麥克風授權成功；尚未 ready |
 | `ready` | `{mic:true}`，使用者確認收音準備 |
-| `prepared` | `{mime_type,sample_rate?,channel_count?}`，MediaRecorder 已建立且可用 |
+| `prepared` | `{mime_type,sample_rate?,channel_count?,processing?}`，MediaRecorder 已建立且可用。`processing`＝`{echo_cancellation,noise_suppression,auto_gain_control,latency}`，取自 `getSettings()`，值為 true／false／null（未回報）；目前後端忽略此欄位，尚未入庫 |
 | `started` | `{client_ms,performance_ms}`，MediaRecorder start 事件後回報；停止後允許補送遺失確認 |
 | `preview` | `{samples:[-1…1]}`，最多 256 點、伺服器最多約 5 Hz；不存為正式音訊 |
 | `ping` | `{client_ms}`，約每 5 秒 |
