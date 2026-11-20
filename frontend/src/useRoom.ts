@@ -8,7 +8,7 @@ export function useRoom(identity:Identity|null){
   const [room,setRoom]=useState<Room|null>(staticHosting?staticRoom:null);
   const [connected,setConnected]=useState(false);
   const [message,setMessage]=useState('');
-  const [waves,setWaves]=useState<Record<string,{samples:number[];at:number}>>({});
+  const [waves,setWaves]=useState<Record<string,{samples:number[];right?:number[];at:number}>>({});
   const [mic,setMic]=useState(false);
   const device=useRef<RecorderDevice|null>(null);
   const socket=useRef<WebSocket|null>(null);
@@ -34,7 +34,7 @@ export function useRoom(identity:Identity|null){
           else if(m.type==='start'){await recorder.start();}
           else if(m.type==='stop'){recorder.stop();}
           else if(m.type==='cancel'){setMessage(m.reason);}
-          else if(m.type==='preview'){setWaves(old=>({...old,[m.source_label]:{samples:m.samples,at:performance.now()}}));}
+          else if(m.type==='preview'){setWaves(old=>({...old,[m.source_label]:{samples:m.samples,right:m.right,at:performance.now()}}));}
           else if(m.type==='pong'){
             const now=Date.now();clock.current={server:m.server_ms+(now-m.client_ms)/2,local:performance.now()};
             send({type:'clock',client_sent_ms:m.client_ms,server_received_ms:m.server_ms,client_received_ms:now,performance_ms:performance.now()});
@@ -46,13 +46,22 @@ export function useRoom(identity:Identity|null){
     };
     connect();
     const heartbeat=setInterval(()=>send({type:'ping',client_ms:Date.now()}),5000);
-    const preview=setInterval(()=>{const samples=recorder.samples();if(samples){setWaves(old=>({...old,local:{samples,at:performance.now()}}));send({type:'preview',samples});}setMic(!!recorder.stream?.getAudioTracks().some(t=>t.readyState==='live'));},250);
-    const retry=setInterval(()=>void recorder.flush(),3000);
+    const preview=setInterval(()=>{
+      const samples=recorder.samples();
+      if(samples){
+        const right=recorder.rightSamples()??undefined;
+        setWaves(old=>({...old,local:{samples,right,at:performance.now()}}));
+        if((socket.current?.bufferedAmount??0)<16384)send({type:'preview',samples,right});
+      }
+      setMic(!!recorder.stream?.getAudioTracks().some(t=>t.readyState==='live'));
+    },250);
+    const online=()=>void recorder.flush(true);
+    window.addEventListener('online',online);
     const beforeUnload=(event:BeforeUnloadEvent)=>{if(recorder.recorder?.state==='recording'){event.preventDefault();event.returnValue='';}};
     window.addEventListener('beforeunload',beforeUnload);
-    const visibility=()=>{if(document.visibilityState==='hidden')recorder.background();};
+    const visibility=()=>{if(document.visibilityState==='hidden')recorder.background();else void recorder.context?.resume().catch(()=>{});};
     document.addEventListener('visibilitychange',visibility);
-    return()=>{closed=true;clearTimeout(timer);clearInterval(heartbeat);clearInterval(preview);clearInterval(retry);window.removeEventListener('beforeunload',beforeUnload);document.removeEventListener('visibilitychange',visibility);wsClose();recorder.dispose();device.current=null;};
+    return()=>{closed=true;clearTimeout(timer);clearInterval(heartbeat);clearInterval(preview);window.removeEventListener('online',online);window.removeEventListener('beforeunload',beforeUnload);document.removeEventListener('visibilitychange',visibility);wsClose();recorder.dispose();device.current=null;};
     function wsClose(){socket.current?.close();}
   },[identity]);
   return {room,connected,message,setMessage,waves,mic,device,send,clock};

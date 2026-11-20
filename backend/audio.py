@@ -79,13 +79,15 @@ def register_audio(app):
             missing=count['n']!=body.chunk_count or count['first']!=0 or count['last']!=body.chunk_count-1
             interrupted=r['interrupted'] or body.interrupted
             if missing:
-                c.execute("UPDATE participant_recordings SET expected_chunks=%s,status='failed',error='分段不完整，等待補傳' WHERE session_id=%s AND participant_id=%s", (body.chunk_count,r['session_id'],pid))
+                c.execute("UPDATE participant_recordings SET expected_chunks=%s,status=CASE WHEN interrupted THEN 'interrupted' ELSE 'uploading' END,error='分段不完整，等待補傳' WHERE session_id=%s AND participant_id=%s", (body.chunk_count,r['session_id'],pid))
             else:
                 sha=hashlib.sha256()
                 size=0
                 with c.cursor(name='hash_chunks') as cursor:
-                    cursor.execute('SELECT audio_data FROM audio_chunks WHERE session_id=%s AND participant_id=%s ORDER BY chunk_index',(r['session_id'],pid))
+                    cursor.execute('SELECT audio_data,checksum FROM audio_chunks WHERE session_id=%s AND participant_id=%s ORDER BY chunk_index',(r['session_id'],pid))
                     for row in cursor:
+                        if hashlib.sha256(row['audio_data']).hexdigest()!=row['checksum']:
+                            raise HTTPException(422,'已儲存分段 SHA256 校驗失敗')
                         sha.update(row['audio_data'])
                         size+=len(row['audio_data'])
                 c.execute('INSERT INTO audio_assets(session_id,participant_id,mime_type,chunk_count,byte_count,checksum) VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING', (r['session_id'],pid,r['mime_type'],body.chunk_count,size,sha.hexdigest()))
