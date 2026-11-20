@@ -14,6 +14,8 @@
 | `offline.py` | 不經過網站資料庫的離線分析：`chirp` 產生同步嗶聲 wav；`run` 把 2–3 個任意格式的錄音檔（webm、m4a、wav）解碼成 48 kHz 單聲道後跑本模型，印出對齊判定（與 worker 同一套標準）並寫 `offline_report.json` |
 | `tests/test_offline.py` | 離線分析測試：嗶聲檔可被偵測、混合格式（webm／m4a／44.1 kHz wav）對齊通過、無嗶聲時改用包絡仍通過、拒絕把輸出寫進儲存庫 |
 | `record_usb.py` | 同時錄一台雙聲道 USB 裝置（例如 miniDSP EARS）與一支單聲道 USB 麥克風（例如 UMIK-2）；錄完檢查聲道數、長度、破音、沒聲音、左右是否相同。只支援 Windows，用內附的 ffmpeg，不需要另外安裝套件 |
+| `background_check.py` | 雙聲道同一時鐘的錄音能把背景音消掉多少：各頻段的相干度上限，以及「前半段估計轉移函數、後半段驗收」實際做到的消除量 |
+| `tests/test_background.py` | 背景檢查的測試（6 項，合成資料、答案已知） |
 | `tests/test_ears_umik.py` | 雙聲道同一時鐘＋獨立時鐘麥克風的測試（11 項，不需要接上裝置） |
 | `tests/test_worker.py` | worker 的資料庫整合測試（每個測試建新資料庫，用最小權限帳號跑） |
 | `requirements.txt` | numpy、scipy、soundfile、matplotlib、psycopg（worker 用）、imageio-ffmpeg（沒有系統 ffmpeg 時） |
@@ -59,6 +61,21 @@ python -X utf8 analysis/tests/test_ears_umik.py
 - `--ab-spacing-m`：兩支麥克風開孔的間距。給了就會算直線上限 d/c 與相位不混疊的頻率上限 c/(2d)。時間差超過直線上限會提醒；超過 1.5 倍（留給治具繞射的餘裕）就判定不通過，代表間距填錯，或這兩軌不是同一個時鐘。
 - 背景移除的「各軌平均」會先把 B 朝主聲源對正再平均，只影響第 4 步；相位與輸出的 `B_aligned.wav` 都是原始的 B。
 - 直接呼叫模型時用 `--same-clock B --spacing B=0.15`。
+
+### 背景音能消掉多少（到機台旁先做這個）
+
+```powershell
+python -X utf8 analysis/record_usb.py record --stereo E.A.R.S --seconds 60 --out D:\cnc_offline\bg1
+python -X utf8 analysis/background_check.py --stereo D:\cnc_offline\bg1\stereo.wav --out D:\cnc_offline\bg1\background --note "機台停機，只有廠房背景音"
+python -X utf8 analysis/tests/test_background.py
+```
+
+- 錄一段只有背景音的錄音（機台不加工），至少 20 秒，建議 60 秒以上。
+- 每個頻段給兩個數字（負值＝變小）：
+  - **上限**：由兩軌的相干度 γ² 決定，殘餘比例是 1 − γ²。γ² = 0.5 最多消 3 dB，0.9 最多 10 dB，0.99 最多 20 dB。
+  - **實際**：用前半段估計「一軌 → 另一軌」的轉移函數，套到後半段相減，量後半段真的少了多少。背景聲源會移動或時大時小時，實際會比上限差。
+- 判讀：實際消除 10 dB 以上是「有效」，5–10 dB 是「部分有效」，不到 5 dB 是「效果很小」。
+- 位準很低的頻段（接近錄音底噪）相干度一定低，那是麥克風自己的雜訊，不代表現場的背景音消不掉。
 
 ## 做了什麼
 
