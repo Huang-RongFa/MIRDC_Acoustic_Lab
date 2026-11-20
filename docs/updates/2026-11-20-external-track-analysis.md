@@ -3,6 +3,8 @@
 分支：`claude/external-track-analysis-v1`（從 `claude/analysis-model-sync-v1` 分出）。
 狀態：**本機測試通過；跨引擎審查第四輪 PASS；已推送分支、尚未合併。還沒有對真實網站跑過。**
 
+> 這份是第一版的紀錄（當時還沒有網站的正式檔案）。取得正式檔案之後的修正與比對結果在 [`2026-11-20-external-track-analysis-real-schema.md`](2026-11-20-external-track-analysis-real-schema.md)；下面提到「照規格重建」的地方已被那一版取代。
+
 依據：《CNC Acoustic Lab｜外部音訊分析系統對接規格》（2026-11-17）。設計說明見 [`docs/external-track-analysis.md`](../external-track-analysis.md)。
 
 ## 一、先講限制

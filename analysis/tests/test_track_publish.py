@@ -4,8 +4,9 @@
   $env:WORKER_TEST_ADMIN_URL = 'postgresql://postgres@127.0.0.1:55433/postgres'
   python -X utf8 analysis/tests/test_track_publish.py
 
-注意：結果表的 DDL 是照規格文字重建的（fixtures/track_schema_RECONSTRUCTED_from_spec_20261117.sql），不是網站的正式 migration。
-整條流程都用最小權限帳號 track_analysis_writer 執行。
+資料庫結構用的是網站的正式檔案（2026-11-20 取得，來源與雜湊見 fixtures/README.md）：
+  public V1.2 schema → 本儲存庫的 001–003 → 網站的 004_multi_recorder → 005_track_analysis → 最小權限帳號腳本。
+整條流程都用最小權限帳號 track_analysis_writer 執行。這仍然是測試用的本機資料庫，不是網站實際的資料庫。
 """
 import hashlib
 import io
@@ -36,9 +37,11 @@ from track_analysis import source as src  # noqa: E402
 from track_analysis import worker  # noqa: E402
 
 ADMIN = os.environ.get("WORKER_TEST_ADMIN_URL")
-SCHEMA = [ROOT / "backend" / "migrations" / n for n in
-          ("001_mobile_capture.sql", "002_room_lifecycle.sql", "003_recording_metadata.sql")] + [
-    HERE / "fixtures" / "track_schema_RECONSTRUCTED_from_spec_20261117.sql", ROOT / "deploy" / "track_analysis_writer_role.sql"]
+SCHEMA = [ROOT / "CNC_Acoustic_Lab_DB_v1_2" / "01_schema_complete.sql"] + [
+    ROOT / "backend" / "migrations" / n for n in
+    ("001_mobile_capture.sql", "002_room_lifecycle.sql", "003_recording_metadata.sql")] + [
+    HERE / "fixtures" / "site_004_multi_recorder.sql", HERE / "fixtures" / "site_005_track_analysis.sql",
+    ROOT / "deploy" / "track_analysis_writer_role.sql"]
 PNG = b"\x89PNG\r\n\x1a\n"
 
 
@@ -109,8 +112,10 @@ def seed(admin_url, devices, status="completed"):
     with psycopg.connect(admin_url) as c:
         c.execute("SET search_path TO mobile_capture")
         c.execute("INSERT INTO recording_rooms(id,code) VALUES(%s,%s)", (room, uuid.uuid4().hex[:6].upper()))
-        c.execute("INSERT INTO recording_sessions(id,room_id,status,conditions) VALUES(%s,%s,'finalizing',%s)",
-                  (session, room, Jsonb({"spindle_rpm": 6000})))
+        machine = c.execute("INSERT INTO public.machines(machine_code,machine_name) VALUES(%s,'測試機台') RETURNING machine_id",
+                            ("M-" + uuid.uuid4().hex[:8],)).fetchone()[0]
+        c.execute("INSERT INTO recording_sessions(id,room_id,status,conditions,machine_id) VALUES(%s,%s,'finalizing',%s,%s)",
+                  (session, room, Jsonb({"spindle_rpm": 6000}), machine))
         for pos, d in enumerate(devices):
             pid = uuid.uuid4()
             pids.append(pid)
@@ -119,7 +124,7 @@ def seed(admin_url, devices, status="completed"):
             c.execute("INSERT INTO participant_recordings(session_id,participant_id,room_id,status,expected_chunks,actual_started_at,"
                       "source_position,sample_rate,channel_count,requested_sample_rate,requested_channel_count,interrupted) "
                       "VALUES(%s,%s,%s,'stored',%s,0,%s,%s,%s,%s,%s,%s)",
-                      (session, pid, room, None, pos, d.get("reported_sr"), d.get("reported_ch"), 48000, d.get("reported_ch"),
+                      (session, pid, room, None, "ABC"[pos], d.get("reported_sr"), d.get("reported_ch"), 48000, d.get("reported_ch"),
                        bool(d.get("interrupted"))))
             if d.get("audio") is not None:
                 add_asset(c, session, pid, d["audio"], corrupt=d.get("corrupt"))
@@ -189,16 +194,17 @@ def test_one_two_one_devices_give_four_plus_four_images():
         assert {k["kind"]: k["n"] for k in kinds} == {"spectrogram": 4, "mfcc": 4, "matrices": 4}, kinds
         tracks = q(admin, "SELECT * FROM mobile_capture.recording_tracks ORDER BY device_name, channel_index")
         assert [(t["device_name"], t["channel_index"], t["channel_label"], t["source_channel_count"]) for t in tracks] == [
-            ("錄音者 A", 0, "Mono", 1), ("錄音者 B", 0, "Left", 2), ("錄音者 B", 1, "Right", 2), ("錄音者 C", 0, "Mono", 1)], tracks
+            ("A · 錄音者 A", 0, "Mono", 1), ("B · 錄音者 B", 0, "Left", 2), ("B · 錄音者 B", 1, "Right", 2),
+            ("C · 錄音者 C", 0, "Mono", 1)], tracks                    # 顯示名稱和網站內建分析同一個格式
         for t in tracks:                                        # track_id 用規格第 3 節的規則
             assert t["track_id"] == uuid.uuid5(uuid.NAMESPACE_URL, f"cnc:{session}:{t['device_id']}:{t['channel_index']}")
             assert t["analysis_sample_rate"] == 44100 and t["analysis_status"] == "completed" and t["total_frames"] > 0
         by = {(t["device_name"], t["channel_index"]): t for t in res["tracks"]}
-        a = by[("錄音者 A", 0)]
+        a = by[("A · 錄音者 A", 0)]
         assert a["reported_sample_rate"] == 44100 and a["actual_sample_rate"] == 48000 and a["original_sample_rate"] == 48000, a
         assert a["requested_sample_rate"] == 48000 and a["audio_asset_id"] == f"{session}/{pids[0]}"
         assert a["source_checksum"] == hashlib.sha256(dev_mono_opus()["audio"][0]).hexdigest()
-        assert by[("錄音者 B", 0)]["actual_sample_rate"] == 44100
+        assert by[("B · 錄音者 B", 0)]["actual_sample_rate"] == 44100
         # 每個成功音軌的 URL 都對得到實際存在的 PNG
         for t in res["tracks"]:
             for kind in ("spectrogram", "mfcc"):
@@ -209,11 +215,12 @@ def test_one_two_one_devices_give_four_plus_four_images():
         # Left／Right 各自分析：頻譜峰值分別在 440 Hz 與 1000 Hz
         freqs = np.arange(1025) * 44100 / 2048
         peak = lambda t: float(freqs[int(np.argmax(matrices(admin, s["run_id"], t["track_id"])["spectrogram"].mean(axis=1)))])  # noqa: E731
-        assert abs(peak(by[("錄音者 B", 0)]) - 440) < 25 and abs(peak(by[("錄音者 B", 1)]) - 1000) < 25
-        assert abs(peak(a) - 700) < 25 and abs(peak(by[("錄音者 C", 0)]) - 2000) < 25
-        # 同一 run 共用時間軸與 MFCC 色階；色階就是所有成功音軌的 min/max
-        ends = [t["valid_range"][1] for t in res["tracks"]]
-        assert res["time_range"][0] == 0.0 and abs(res["time_range"][1] - max(ends)) < 1e-9
+        assert abs(peak(by[("B · 錄音者 B", 0)]) - 440) < 25 and abs(peak(by[("B · 錄音者 B", 1)]) - 1000) < 25
+        assert abs(peak(a) - 700) < 25 and abs(peak(by[("C · 錄音者 C", 0)]) - 2000) < 25
+        # 同一 run 共用時間軸與 MFCC 色階。時間軸到最長那一軌的結尾（和網站內建分析同一個定義）；色階是所有成功音軌的 min/max
+        longest = max(t["duration_seconds"] for t in res["tracks"])
+        assert res["time_range"] == [0.0, longest] and res["duration_seconds"] == longest
+        assert all(0.0 <= t["valid_range"][0] and t["valid_range"][1] <= t["duration_seconds"] + 1e-9 for t in res["tracks"])
         m = [matrices(admin, s["run_id"], t["track_id"])["mfcc"] for t in res["tracks"]]
         assert abs(res["mfcc_color_range"][0] - min(x.min() for x in m)) < 1e-3
         assert abs(res["mfcc_color_range"][1] - max(x.max() for x in m)) < 1e-3
@@ -250,7 +257,7 @@ def test_builtin_worker_never_sees_a_claimable_row():
         run(writer, session)
         rows = q(admin, "SELECT id,status,fingerprint,result FROM mobile_capture.track_analysis_runs ORDER BY created_at")
         assert len(rows) == 2
-        assert rows[0]["id"] == builtin and rows[0]["status"] == "queued" and rows[0]["result"] is None     # 內建工作原封不動
+        assert rows[0]["id"] == builtin and rows[0]["status"] == "queued" and rows[0]["result"] == {}       # 內建工作原封不動
         assert rows[1]["status"] == "completed" and rows[1]["fingerprint"] != "builtin-fp"
         assert q(admin, "SELECT count(*) AS n FROM mobile_capture.track_analysis_runs WHERE status IN ('queued','running') AND fingerprint LIKE 'ext:%%'")[0]["n"] == 0
         # publish 拒絕非最終狀態、別人的 fingerprint、對不上的 result、非 PNG
@@ -316,9 +323,10 @@ def test_corrupt_source_gives_partial_and_no_fake_tracks():
         s = run(writer, session)
         assert s["status"] == "partial" and s["tracks_completed"] == 1 and s["source_errors"] == 1, s
         res = q(admin, "SELECT result FROM mobile_capture.track_analysis_runs")[0]["result"]
-        assert res["status"] == "partial" and len(res["tracks"]) == 1 and res["tracks"][0]["device_name"] == "錄音者 C"
+        assert res["status"] == "partial" and len(res["tracks"]) == 1 and res["tracks"][0]["device_name"] == "A · 錄音者 C"
+        assert res["completed_device_count"] == 2          # 已封存的裝置數（網站內建分析的定義），壞掉的那台也算已封存
         err = res["source_errors"][0]
-        assert err["device_id"] == str(pids[1]) and err["device_name"] == "錄音者 B" and err["status"] == "failed"
+        assert err["device_id"] == str(pids[1]) and err["device_name"] == "B · 錄音者 B" and err["status"] == "failed"
         assert "SHA-256" in err["error"] and ":" not in err["error"].replace("SHA-256", "")      # 不含地端路徑
         assert q(admin, "SELECT count(*) AS n FROM mobile_capture.recording_tracks WHERE device_id=%s", (pids[1],))[0]["n"] == 0
         assert q(admin, "SELECT count(*) AS n FROM mobile_capture.track_analysis_artifacts a JOIN mobile_capture.recording_tracks t "
@@ -335,6 +343,7 @@ def test_missing_asset_then_late_asset_schedules_a_new_complete_run():
         s1 = run(writer, session)
         res1 = q(admin, "SELECT result FROM mobile_capture.track_analysis_runs")[0]["result"]
         assert s1["status"] == "partial" and res1["source_errors"][0]["status"] == "missing" and res1["source_errors"][0]["device_id"] == str(pids[1])
+        assert res1["completed_device_count"] == 1
         with worker.connect(writer) as conn:
             assert worker.pending_sessions(conn) == []           # 同一批來源已有結果：不自動重跑
         with psycopg.connect(admin) as c:
@@ -354,7 +363,8 @@ def test_all_sources_failing_gives_failed_without_artifacts():
         s = run(writer, session)
         assert s["status"] == "failed" and s["tracks_total"] == 0 and s["artifacts"] == 0, s
         row = q(admin, "SELECT status, result FROM mobile_capture.track_analysis_runs")[0]
-        assert row["status"] == "failed" and row["result"]["tracks"] == [] and row["result"]["time_range"] is None
+        assert row["status"] == "failed" and row["result"]["tracks"] == [] and row["result"]["time_range"] == [0.0, 1.0]
+        assert row["result"]["mfcc_color_range"] == [-1.0, 1.0] and row["result"]["duration_seconds"] == 0     # 和網站內建分析相同的預設值
         assert row["result"]["source_errors"][0]["error"] == "原始檔無法解碼"
         assert q(admin, "SELECT count(*) AS n FROM mobile_capture.track_analysis_artifacts")[0]["n"] == 0
         assert q(admin, "SELECT count(*) AS n FROM mobile_capture.recording_tracks")[0]["n"] == 0
@@ -372,13 +382,13 @@ def test_interval_with_a_shorter_track_reports_no_data():
         row = q(admin, "SELECT start_seconds,end_seconds,result FROM mobile_capture.track_analysis_runs WHERE id=%s", (s["run_id"],))[0]
         assert row["start_seconds"] == 2.0 and row["end_seconds"] == 3.5 and row["result"]["time_range"] == [2.0, 3.5]
         nd = [t for t in row["result"]["tracks"] if t["analysis_status"] == "no_data"]
-        assert len(nd) == 1 and nd[0]["device_name"] == "錄音者 A" and nd[0]["spectrogram_url"] is None and nd[0]["mfcc_url"] is None and nd[0]["error"]
+        assert len(nd) == 1 and nd[0]["device_name"] == "A · 錄音者 A" and nd[0]["spectrogram_url"] is None and nd[0]["mfcc_url"] is None and nd[0]["error"]
         assert q(admin, "SELECT count(*) AS n FROM mobile_capture.track_analysis_artifacts WHERE run_id=%s AND track_id=%s",
                  (s["run_id"], nd[0]["track_id"]))[0]["n"] == 0
         ok = [t for t in row["result"]["tracks"] if t["analysis_status"] == "completed"]
         assert all(2.0 <= t["valid_range"][0] and t["valid_range"][1] <= 3.5 + 1e-9 for t in ok), ok
         z = matrices(admin, s["run_id"], ok[0]["track_id"])
-        assert abs(z["times"][0] - 2.0) < 1e-9 and z["times"][-1] < 3.5
+        assert abs(z["times"][0] - (2.0 + 1024 / 44100)) < 1e-9 and z["times"][-1] < 3.5     # times 是每個窗的中心
         summary = q(admin, "SELECT analysis_status FROM mobile_capture.recording_tracks WHERE track_id=%s", (nd[0]["track_id"],))[0]
         assert summary["analysis_status"] == "completed"
         for bad in ({"start_seconds": -1.0}, {"start_seconds": 3.0, "end_seconds": 2.0}):
@@ -405,6 +415,20 @@ def test_existing_track_id_is_reused():
         rows = q(admin, "SELECT track_id, analysis_status FROM mobile_capture.recording_tracks")
         assert len(rows) == 1 and rows[0]["track_id"] == legacy and rows[0]["analysis_status"] == "completed"
         assert q(admin, "SELECT count(*) AS n FROM mobile_capture.track_analysis_artifacts WHERE run_id=%s AND track_id=%s", (s["run_id"], legacy))[0]["n"] == 3
+        # 已知限制：資料庫裡若有不是照 uuid5 規則產生的舊 track_id，地端照規格沿用它；
+        # 但內建 worker 一律自己算 uuid5 再寫入，會撞到 (session, device, channel) 的唯一鍵而失敗。
+        # 內建和地端都只會產生 uuid5 的 ID，所以這只會發生在有第三個寫入者的時候。
+        t = res["tracks"][0]
+        canonical = str(uuid.uuid5(uuid.NAMESPACE_URL, f"cnc:{session}:{pids[0]}:0"))
+        with psycopg.connect(admin) as c:
+            c.execute("SET search_path TO mobile_capture")
+            try:
+                c.execute(SITE_TRACK_UPSERT, tuple({**t, "track_id": canonical}[k] for k in SITE_TRACK_KEYS))
+            except psycopg.errors.UniqueViolation:
+                c.rollback()
+            else:
+                raise AssertionError("預期內建的寫法會撞到唯一鍵")
+        assert [r["track_id"] for r in q(admin, "SELECT track_id FROM mobile_capture.recording_tracks")] == [legacy]
 
 
 def test_writer_role_is_least_privilege():
@@ -694,7 +718,7 @@ def test_publish_refuses_autocommit_and_images_that_do_not_match_the_result():
 
 
 def test_chunk_without_checksum_is_rejected():
-    """音段沒有 SHA-256 紀錄時不能當成已驗證（正式 schema 是否允許空值不明，所以程式自己擋）。"""
+    """音段沒有 SHA-256 紀錄時不能當成已驗證。正式 schema 的 checksum 是 NOT NULL，這裡是多一層防護。"""
     data = b"abc" * 100
 
     class Cur:
@@ -737,17 +761,180 @@ def test_chunk_without_checksum_is_rejected():
                 raise AssertionError("沒有 checksum 的音段應該拒絕")
 
 
-def test_time_axis_is_known_without_loading_audio():
-    """共用時間軸由檔案長度算出：算出來的 44100 Hz 樣本數必須和實際重取樣後的長度一致。"""
-    for n in (1, 159, 160, 161, 4800, 48000, 123457, 480000):
-        assert src.analysis_length(n, 48000) == len(sc.resample_to_analysis(np.zeros(n), 48000)), n
-        assert src.analysis_length(n, 44100) == n
-    try:
-        src.analysis_length(1000, 32000)
-    except src.SourceError:
-        pass
-    else:
-        raise AssertionError("不支援的取樣率應該拒絕")
+def test_other_sample_rates_are_analysed_like_the_builtin():
+    """網站內建分析不限 44100／48000，其他取樣率照樣重取樣後分析；地端要一致，不能把這種來源當成失敗。"""
+    with fresh_db() as (admin, writer):
+        dev = {"name": "錄音者 A", "audio": encode("mono_wav_16k", tone(1500, 3.0, 16000), 16000, "wav"), "reported_sr": 48000, "reported_ch": 1}
+        session, _ = seed(admin, [dev])
+        s = run(writer, session)
+        assert s["status"] == "completed" and s["tracks_completed"] == 1, s
+        res = q(admin, "SELECT result FROM mobile_capture.track_analysis_runs")[0]["result"]
+        t = res["tracks"][0]
+        assert t["actual_sample_rate"] == 16000 and t["analysis_sample_rate"] == 44100 and t["total_frames"] == 48000
+        assert t["duration_seconds"] == 3.0 and res["time_range"] == [0.0, 3.0]
+        z = matrices(admin, s["run_id"], t["track_id"])
+        freqs = np.arange(1025) * 44100 / 2048
+        assert abs(float(freqs[int(np.argmax(z["spectrogram"].mean(axis=1)))]) - 1500) < 25
+
+
+# ---------- Codex 第五輪審查（2026-11-20）：一個來源或一個聲道出問題，不能拖垮同一批的其他來源 ----------
+
+def test_one_channel_failing_does_not_block_the_others():
+    """某個聲道算不出來、或圖畫不出來：只有那個聲道標成 failed，其他照常發布（和網站內建分析相同）。"""
+    real_analyze, real_mfcc = worker.sc.analyze_channel, worker.render.mfcc_png
+    for mode, message in (("analyze", "此聲道分析失敗"), ("mfcc", "圖表產生失敗")):
+        with fresh_db() as (admin, writer):
+            session, pids = seed(admin, [dev_mono_wav(), dev_stereo_aac()])
+            n = {"calls": 0}
+
+            def flaky(*a, **kw):
+                n["calls"] += 1
+                if n["calls"] == 3:                                # 第三個聲道＝Stereo 的 Right
+                    raise MemoryError("simulated C:/secret/path")
+                return (real_analyze if mode == "analyze" else real_mfcc)(*a, **kw)
+            if mode == "analyze":
+                worker.sc.analyze_channel = flaky
+            else:
+                worker.render.mfcc_png = flaky
+            try:
+                s = run(writer, session)
+            finally:
+                worker.sc.analyze_channel, worker.render.mfcc_png = real_analyze, real_mfcc
+            assert s["status"] == "partial" and s["tracks_completed"] == 2 and s["tracks_total"] == 3 and s["source_errors"] == 0, (mode, s)
+            res = q(admin, "SELECT result FROM mobile_capture.track_analysis_runs")[0]["result"]
+            bad = [t for t in res["tracks"] if t["analysis_status"] == "failed"]
+            assert len(bad) == 1 and bad[0]["channel_label"] == "Right" and bad[0]["error"] == message, (mode, bad)
+            assert bad[0]["spectrogram_url"] is None and bad[0]["mfcc_url"] is None and "secret" not in json.dumps(res)
+            assert q(admin, "SELECT count(*) AS n FROM mobile_capture.track_analysis_artifacts WHERE track_id=%s", (bad[0]["track_id"],))[0]["n"] == 0
+            assert q(admin, "SELECT count(*) AS n FROM mobile_capture.track_analysis_artifacts")[0]["n"] == 6       # 另外兩軌各 3 個
+            rows = q(admin, "SELECT channel_label, analysis_status FROM mobile_capture.recording_tracks ORDER BY device_name, channel_index")
+            assert [(r["channel_label"], r["analysis_status"]) for r in rows] == [("Mono", "completed"), ("Left", "completed"), ("Right", "failed")]
+
+
+def test_extreme_sample_rate_is_one_source_error():
+    """取樣率很怪的檔案（重取樣要幾 GB 記憶體）：在配置記憶體之前就列為來源失敗，其他來源照常發布。"""
+    with fresh_db() as (admin, writer):
+        odd = {"name": "錄音者 B", "audio": encode("mono_wav_44099", tone(1000, 2.0, 44099), 44099, "wav"), "reported_sr": 48000, "reported_ch": 1}
+        session, pids = seed(admin, [dev_mono_wav(), odd])
+        s = run(writer, session)
+        assert s["status"] == "partial" and s["tracks_completed"] == 1 and s["source_errors"] == 1, s
+        res = q(admin, "SELECT result FROM mobile_capture.track_analysis_runs")[0]["result"]
+        err = res["source_errors"][0]
+        assert err["device_id"] == str(pids[1]) and err["status"] == "failed" and "44099" in err["error"] and "上限" in err["error"], err
+        assert [t["device_name"] for t in res["tracks"]] == ["A · 錄音者 C"] and res["time_range"] == [0.0, 4.0]
+
+
+def test_read_failure_after_decode_recomputes_the_shared_time_axis():
+    """解碼成功的檔案後來讀不回來：那台列為來源失敗，共用時間軸只依實際有音軌的裝置決定（和網站內建分析相同）。"""
+    real = src.read_wav
+    with fresh_db() as (admin, writer):
+        long_dev = {**dev_mono_wav(6.0, "mono_wav_long"), "name": "錄音者 A"}
+        session, pids = seed(admin, [long_dev, dev_stereo_aac()])
+
+        def flaky(path):
+            if str(pids[0]) in str(path):
+                raise src.SourceError("原始檔無法解碼")
+            return real(path)
+        src.read_wav = flaky
+        try:
+            s = run(writer, session)
+        finally:
+            src.read_wav = real
+        assert s["status"] == "partial" and s["tracks_completed"] == 2 and s["source_errors"] == 1, s
+        res = q(admin, "SELECT result FROM mobile_capture.track_analysis_runs")[0]["result"]
+        assert res["source_errors"][0]["device_id"] == str(pids[0])
+        longest = max(t["duration_seconds"] for t in res["tracks"])
+        assert longest < 5.0 and res["time_range"] == [0.0, longest] and res["duration_seconds"] == longest     # 不是 6 秒
+        assert q(admin, "SELECT count(*) AS n FROM mobile_capture.recording_tracks WHERE device_id=%s", (pids[0],))[0]["n"] == 0
+
+
+# ---------- 用網站後端 backend/analysis.py（v1.4.1，2026-11-20 取得）裡的 SQL 原文來讀寫 ----------
+SITE_GET_RUN = """SELECT * FROM track_analysis_runs WHERE session_id=%s AND start_seconds=%s
+                AND end_seconds IS NOT DISTINCT FROM %s ORDER BY created_at DESC LIMIT 1"""
+SITE_GET_IMAGE = """SELECT a.content FROM track_analysis_artifacts a JOIN track_analysis_runs r ON r.id=a.run_id
+                WHERE r.session_id=%s AND a.run_id=%s AND a.track_id=%s AND a.kind=%s"""
+SITE_CLAIM = "SELECT * FROM track_analysis_runs WHERE status='queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
+SITE_TRACK_KEYS = ["track_id", "session_id", "device_id", "device_name", "channel_index", "channel_label", "source_channel_count",
+                   "requested_sample_rate", "original_sample_rate", "actual_sample_rate", "analysis_sample_rate", "duration_seconds",
+                   "total_frames", "analysis_status"]
+SITE_TRACK_UPSERT = ("INSERT INTO recording_tracks(" + ",".join(SITE_TRACK_KEYS) + ") VALUES(" + ",".join(["%s"] * len(SITE_TRACK_KEYS))
+                     + ") ON CONFLICT(track_id) DO UPDATE SET analysis_status=excluded.analysis_status")
+# process_job 寫進 result 的欄位，以及每個音軌的欄位
+SITE_RESULT_KEYS = {"session_id", "run_id", "status", "analysis_sample_rate", "tracks", "source_errors", "completed_device_count",
+                    "analyzable_track_count", "duration_seconds", "time_range", "mfcc_color_range", "parameters", "versions"}
+SITE_RESULT_TRACK_KEYS = set(SITE_TRACK_KEYS) | {"reported_sample_rate", "audio_asset_id", "source_checksum", "spectrogram_url",
+                                                  "mfcc_url", "valid_range"}
+SITE_PARAMETER_KEYS = {"analysis_sample_rate", "fft_size", "hop_length", "window", "mel_bands", "mfcc_count", "mel_scale", "dct",
+                       "frequency_range", "spectrogram_scale", "db_reference", "mfcc_power", "frame_policy", "resampling",
+                       "time_reference", "algorithm_version"}
+
+
+def test_site_queries_read_the_external_result():
+    """網站查詢 API、PNG API、內建 worker 用的 SQL，對著地端寫入的資料實際執行（資料表是網站的正式定義）。"""
+    with fresh_db() as (admin, writer):
+        session, pids = seed(admin, [dev_mono_wav(), dev_stereo_aac()])
+        s = run(writer, session)
+        part = run(writer, session, start_seconds=1.0, end_seconds=2.0)
+        with psycopg.connect(admin, row_factory=psycopg.rows.dict_row) as c:
+            c.execute("SET search_path TO mobile_capture")       # 網站後端的連線也是用這個 search_path
+            c.commit()
+            # 查詢 API：整段、區間各自找得到地端的結果；沒算過的區間找不到
+            job = c.execute(SITE_GET_RUN, (session, 0, None)).fetchone()
+            assert str(job["id"]) == s["run_id"] and job["status"] == "completed"
+            assert str(c.execute(SITE_GET_RUN, (session, 1.0, 2.0)).fetchone()["id"]) == part["run_id"]
+            assert c.execute(SITE_GET_RUN, (session, 1.0, 3.0)).fetchone() is None
+            res = job["result"]
+            # 內建分析寫的欄位，地端的結果都要有，前端才讀得到同樣的東西
+            assert SITE_RESULT_KEYS <= set(res), SITE_RESULT_KEYS - set(res)
+            assert SITE_PARAMETER_KEYS <= set(res["parameters"]), SITE_PARAMETER_KEYS - set(res["parameters"])
+            assert all(not isinstance(v, dict) for v in res["parameters"].values())            # 單層，和內建分析同樣的形狀
+            assert len(res["tracks"]) == 3
+            for t in res["tracks"]:
+                assert SITE_RESULT_TRACK_KEYS <= set(t), SITE_RESULT_TRACK_KEYS - set(t)
+                # PNG API：URL 裡的 run_id／track_id 拿去查，真的拿得到 PNG
+                for kind in ("spectrogram", "mfcc"):
+                    parts = t[f"{kind}_url"].split("/")
+                    assert parts[:5] == ["", "api", "v1", "sessions", str(session)] and parts[-1] == f"{kind}.png"
+                    got = c.execute(SITE_GET_IMAGE, (session, parts[6], parts[8], kind)).fetchone()
+                    assert bytes(got["content"]).startswith(PNG)
+                other = uuid.uuid4()                                                            # 換一個 session 就拿不到
+                assert c.execute(SITE_GET_IMAGE, (other, s["run_id"], t["track_id"], "spectrogram")).fetchone() is None
+            # 內建 worker 領工作：地端寫的列它領不到
+            assert c.execute(SITE_CLAIM).fetchone() is None
+            c.rollback()
+            # 主持人之後在網站按「分析」：內建 worker 用它自己的方式寫同一批音軌，不會撞在一起，也不會多出音軌
+            before = c.execute("SELECT track_id, device_name FROM recording_tracks ORDER BY track_id").fetchall()
+            for t in res["tracks"]:
+                builtin_tid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"cnc:{session}:{t['device_id']}:{t['channel_index']}"))   # 內建自己算的 ID
+                assert builtin_tid == t["track_id"]
+                c.execute(SITE_TRACK_UPSERT, tuple({**t, "track_id": builtin_tid}[k] for k in SITE_TRACK_KEYS))
+            builtin = uuid.uuid4()
+            c.execute("INSERT INTO track_analysis_runs(id,session_id,fingerprint,start_seconds,end_seconds,status) VALUES(%s,%s,%s,%s,%s,'queued')",
+                      (builtin, session, hashlib.sha256(b"builtin").hexdigest(), 0, None))
+            c.commit()
+            assert c.execute("SELECT track_id, device_name FROM recording_tracks ORDER BY track_id").fetchall() == before
+            assert c.execute(SITE_CLAIM).fetchone()["id"] == builtin                            # 它領到的是它自己的那一筆
+            c.rollback()
+        # 之後地端再跑一次：內建的工作列不動，地端已有的結果照規則保留
+        again = run(writer, session)
+        assert again["skipped"] is True and again["run_id"] == s["run_id"]
+        row = q(admin, "SELECT status, result FROM mobile_capture.track_analysis_runs WHERE id=%s", (builtin,))[0]
+        assert row["status"] == "queued" and row["result"] == {}
+
+
+def test_real_migration_constraints_are_in_force():
+    """確認測試跑在網站的正式定義上，而不是放寬過的版本。"""
+    with fresh_db() as (admin, _):
+        cols = {(r["table_name"], r["column_name"]): r for r in q(admin, """
+            SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
+            WHERE table_schema='mobile_capture'""")}
+        assert cols[("participant_recordings", "source_position")]["data_type"] == "text"
+        assert cols[("track_analysis_runs", "result")]["is_nullable"] == "NO"
+        assert cols[("recording_sessions", "machine_id")]["data_type"] == "uuid"
+        names = {r["conname"] for r in q(admin, "SELECT conname FROM pg_constraint")}
+        assert "take_requires_machine" in names
+        idx = {r["indexname"] for r in q(admin, "SELECT indexname FROM pg_indexes WHERE schemaname='mobile_capture'")}
+        assert {"track_analysis_queue", "one_open_session"} <= idx
 
 
 if __name__ == "__main__":

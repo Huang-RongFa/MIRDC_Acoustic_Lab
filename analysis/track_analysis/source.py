@@ -9,14 +9,15 @@ import subprocess
 import numpy as np
 import soundfile as sf
 
-SUPPORTED_RATES = (44100, 48000)
+from . import signal_contract as sc
 
-# 規格 4.1。LEFT JOIN 保留尚未封存或缺失的裝置，讓分析回報缺失而不是悄悄省略。
+# 規格 4.1；排序與網站內建分析相同（backend/analysis.py）。LEFT JOIN 保留尚未封存或缺失的裝置，讓分析回報缺失而不是悄悄省略。
+# source_position 是文字（'A'～'E'），錄音當下的位置；不要用 room_participants.source_label，它在退出後會變成 NULL。
 SOURCES_SQL = """
 SELECT s.id AS session_id, s.status AS session_status,
        s.created_at, s.conditions, r.code AS room_code,
        pr.participant_id, pr.source_position,
-       p.name AS device_name, pr.status AS recording_status,
+       p.name AS participant_name, pr.status AS recording_status,
        pr.interrupted, pr.requested_sample_rate,
        pr.requested_channel_count,
        pr.sample_rate AS reported_sample_rate,
@@ -99,7 +100,8 @@ DECODE_TIMEOUT_S = 1800
 def decode_to_wav(src, wav):
     """解碼成 wav 檔，不改取樣率與聲道數。回傳 (sample_rate, channels, frames)，不把音訊讀進記憶體。
     取樣率、聲道數、frames 一律以這裡解碼出來的為準，不採用檔名或回報的 metadata（規格 4.2、5.1）。
-    逾時、解碼程式起不來、檔案壞掉，都轉成 SourceError：一個來源的問題不該讓整個 session 的其他來源也發布不了。"""
+    取樣率不限 44100／48000：和網站內建分析一樣，其他取樣率照常重取樣到 44100 Hz 分析（比例超過上限的除外）。
+    逾時、解碼程式起不來、檔案壞掉、含有無效數值，都轉成 SourceError：一個來源的問題不該讓整個 session 的其他來源也發布不了。"""
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(src), "-vn", "-c:a", "pcm_f32le", str(wav)]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=DECODE_TIMEOUT_S)
@@ -117,8 +119,18 @@ def decode_to_wav(src, wav):
         raise SourceError("解碼後沒有任何音訊")
     if info.channels not in (1, 2):
         raise SourceError(f"解碼後是 {info.channels} 聲道；只支援 Mono 與 Stereo")
-    if info.samplerate not in SUPPORTED_RATES:
-        raise SourceError(f"解碼後取樣率 {info.samplerate} Hz；只支援 44100 與 48000 Hz")
+    try:
+        sc.resample_ratio(int(info.samplerate))          # 取樣率太怪、重取樣代價過高的檔案在這裡就擋下來
+    except ValueError as e:
+        raise SourceError(str(e)) from e
+    try:                                         # 一塊一塊檢查，不把整個檔案讀進記憶體
+        for block in sf.blocks(str(wav), blocksize=1 << 18, dtype="float32", always_2d=True):
+            if not np.isfinite(block).all():
+                raise SourceError("解碼後含有無效數值")
+    except SourceError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise SourceError("原始檔無法解碼") from e
     return int(info.samplerate), int(info.channels), int(info.frames)
 
 
@@ -132,11 +144,3 @@ def read_wav(wav):
         raise SourceError("解碼後含有無效數值")
     return data
 
-
-def analysis_length(frames, sample_rate):
-    """重取樣到 44100 Hz 之後的樣本數（和 scipy.signal.resample_poly 的輸出長度一致），不必真的重取樣就能算出時間軸。"""
-    if sample_rate == 44100:
-        return int(frames)
-    if sample_rate == 48000:
-        return -(-int(frames) * 147 // 160)
-    raise SourceError(f"解碼後取樣率 {sample_rate} Hz；只支援 44100 與 48000 Hz")

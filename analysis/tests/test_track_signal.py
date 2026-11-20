@@ -100,7 +100,7 @@ def test_2_frames_times_and_no_padding():
         assert expect == 1 + (n - 2048) // 441
         assert amp.shape == (N_BINS, expect) and times.shape == (expect,), (n, amp.shape)
         assert times.dtype == np.float64
-        assert all(times[k] == k * 441 / 44100 for k in range(expect)), n
+        assert all(times[k] == (k * 441 + 1024) / 44100 for k in range(expect)), n      # 每個窗的中心
     for n in (0, 1, 2047):
         raises(sc.NoData, sc.stft_amplitude, np.zeros(n))
     assert not issubclass(sc.NoData, ValueError)
@@ -217,8 +217,25 @@ def test_6_resampler():
     y = sc.resample_to_analysis(sine(23000.0, n, sr=48000), 48000)
     alias_db = 20 * np.log10(np.sqrt(2 * np.mean(y[2000:-2000] ** 2)) + 1e-300)
     assert alias_db < -60, alias_db
-    e = raises(ValueError, sc.resample_to_analysis, x, 32000)
-    assert "32000" in str(e) and not isinstance(e, sc.NoData), e
+    # 其他取樣率照同一個公式重取樣（和網站內建分析一致），不拒絕
+    assert sc.resample_ratio(48000) == (147, 160) and sc.resample_ratio(44100) == (1, 1)
+    assert sc.resample_ratio(32000) == (441, 320) and sc.resample_ratio(16000) == (441, 160)
+    for sr in (16000, 32000, 96000):
+        up, down = sc.resample_ratio(sr)
+        y = sc.resample_to_analysis(sine(1000.0, 2 * sr, sr=sr), sr)
+        assert len(y) == -(-2 * sr * up // down), (sr, len(y))
+        amp, resid = fit_tone(y, 1000.0)
+        assert abs(20 * np.log10(amp)) < 0.01 and resid < 1e-3, (sr, amp, resid)
+    for bad in (0, -48000, 44100.5, True, None):
+        e = raises(ValueError, sc.resample_to_analysis, x, bad)
+        assert not isinstance(e, sc.NoData), e
+    # 比例上限：常見取樣率都在範圍內；會要求巨大濾波器或把樣本數放大幾萬倍的取樣率直接拒絕，不去配置記憶體
+    assert sc.MAX_RESAMPLE_FACTOR == 2048
+    for sr in (8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 384000):
+        assert max(sc.resample_ratio(sr)) <= 1280, sr
+    for sr in (1, 44099, 2000003):
+        e = raises(ValueError, sc.resample_to_analysis, np.zeros(10), sr)
+        assert str(sr) in str(e) and "上限" in str(e), e
     raises(ValueError, sc.resample_to_analysis, np.zeros((2, 100)), 44100)
 
 
@@ -232,12 +249,12 @@ def test_7_analyze_channel():
     assert out["analysis_frames"] == 44100 and isinstance(out["analysis_frames"], int)
     assert spec.shape == (N_BINS, 96) and mfcc.shape == (20, 96) and times.shape == (96,)
     assert (spec.argmax(axis=0) == round(6000 / BIN_HZ)).all()           # 沒有混進 1 kHz 的那兩段
-    assert np.array_equal(times, 1.0 + np.arange(96) * 441 / 44100)
-    assert out["valid_range"] == [times[0], times[-1] + 2048 / 44100]
-    assert out["valid_range"][0] == 1.0 and out["valid_range"][1] <= 2.0
+    assert np.array_equal(times, (44100 + np.arange(96) * 441 + 1024) / 44100)      # 窗的中心，以樣本位置計算
+    assert out["valid_range"] == [1.0, (44100 + 95 * 441 + 2048) / 44100]            # 第一個窗的開頭到最後一個窗的結尾
+    assert out["valid_range"][1] <= 2.0
     ref = ref_stft(x[44100:88200])
     assert np.array_equal(spec, (20 * np.log10(np.maximum(ref, 1e-6))).astype(np.float32))
-    # 端點：樣本 [round(start*44100), round(end*44100))。用白噪音比對，差一個樣本就對不上
+    # 端點：樣本 [ceil(start*44100), floor(end*44100))。用白噪音比對，差一個樣本就對不上
     noise = RNG.normal(size=3 * SR)
     got = sc.analyze_channel(noise, SR, 1.0, 2.0)["spectrogram_db"]
 
@@ -246,6 +263,10 @@ def test_7_analyze_channel():
 
     assert np.abs(got - ref_db(44100, 88200)).max() < 1e-3
     assert np.abs(got - ref_db(44099, 88199)).max() > 1.0 and np.abs(got - ref_db(44101, 88201)).max() > 1.0
+    # 起點落在兩個樣本之間就往後取、終點往前取：不會用到區間以外的樣本
+    inner = sc.analyze_channel(noise, SR, 1.0 + 0.4 / 44100, 2.0 - 0.4 / 44100)
+    assert inner["analysis_frames"] == 88199 - 44101 and inner["valid_range"][0] == 44101 / 44100
+    assert np.abs(inner["spectrogram_db"] - ref_db(44101, 88199)).max() < 1e-3
     # end 不含：剛好多一個 hop 才多一個窗
     assert sc.analyze_channel(noise, SR, 1.0, 1.0 + (2048 + 440) / 44100)["spectrogram_db"].shape[1] == 1
     assert sc.analyze_channel(noise, SR, 1.0, 1.0 + (2048 + 441) / 44100)["spectrogram_db"].shape[1] == 2
@@ -255,7 +276,7 @@ def test_7_analyze_channel():
     assert (sc.analyze_channel(z, SR, 1.0, 2.0)["spectrogram_db"] == -120.0).all()
     # end 省略 = 到結尾；end 超過錄音長度不補資料
     whole = sc.analyze_channel(x, SR)
-    assert whole["analysis_frames"] == len(x) and whole["times"][0] == 0.0
+    assert whole["analysis_frames"] == len(x) and whole["times"][0] == 1024 / 44100 and whole["valid_range"][0] == 0.0
     assert whole["spectrogram_db"].shape[1] == 1 + (len(x) - 2048) // 441
     tail = sc.analyze_channel(x, SR, 2.5, 99.0)
     assert tail["analysis_frames"] == len(x) - 110250 and tail["valid_range"][1] <= 3.0
@@ -265,7 +286,7 @@ def test_7_analyze_channel():
     raises(sc.NoData, sc.analyze_channel, x, SR, 1.0, 1.0 + 2047 / 44100)
     raises(sc.NoData, sc.analyze_channel, x, SR, 2.0, 1.0)
     assert sc.analyze_channel(x, SR, 1.0, 1.0 + 2048 / 44100)["spectrogram_db"].shape[1] == 1
-    raises(ValueError, sc.analyze_channel, x, 32000)
+    raises(ValueError, sc.analyze_channel, x, 0)
     # 立體聲：左 1 kHz、右 3 kHz（48 kHz 來源），各聲道各自分析，不平均
     n = 2 * 48000
     stereo = np.stack([sine(1000, n, sr=48000, amp=0.5), sine(3000, n, sr=48000, amp=0.5)], axis=1)
@@ -337,13 +358,15 @@ def test_9_parameters():
     assert json.loads(json.dumps(p, ensure_ascii=False)) == p
     assert p["fft_size"] == 2048 and p["hop_length"] == 441 and p["analysis_sample_rate"] == 44100
     assert p["mel_bands"] == 64 and p["mfcc_count"] == 20
-    assert p["algorithm_version"] == sc.ALGORITHM_VERSION == "mirdc-onprem-track-1"
-    assert p["window"] == "periodic Hann" and p["center"] is False and p["dct"] == "II orthonormal"
-    assert p["amplitude_floor"] == 1e-6 and p["spectrogram_db_range"] == [-120.0, 0.0]
-    assert p["resampler"]["up"] == 147 and p["resampler"]["down"] == 160
-    assert p["resampler"]["fir_taps"] == 128 * 160 + 1 and p["resampler"]["kaiser_beta"] == 8.6
-    for key in ("amplitude_scaling", "mel", "mfcc", "matrices_format", "padding"):
-        assert key in p, key
+    assert p["algorithm_version"] == sc.ALGORITHM_VERSION == "mirdc-onprem-track-2"
+    assert p["window"] == "periodic Hann" and p["dct"] == "II orthonormal"
+    assert p["frequency_range"] == [0, 22050.0] and p["spectrogram_scale"] == [-120, 0]
+    # 和網站內建分析的 PARAMETERS 同名的 16 個鍵都在，而且整份是單層（值只有數字、字串、數字清單）
+    for key in ("mel_scale", "db_reference", "mfcc_power", "frame_policy", "resampling", "time_reference",
+                "channels", "interval_samples", "frame_time", "valid_range", "decoder", "matrices_format"):
+        assert isinstance(p[key], str) and p[key], key
+    assert all(isinstance(v, (int, float, str, list)) for v in p.values())
+    assert "centre" in p["frame_time"] and "ceil" in p["interval_samples"] and "floor" in p["interval_samples"]
     assert (sc.ANALYSIS_SAMPLE_RATE, sc.FFT_SIZE, sc.HOP_LENGTH, sc.MEL_BANDS, sc.MFCC_COUNT) == (44100, 2048, 441, 64, 20)
     assert sc.SPECTROGRAM_DB_RANGE == (-120.0, 0.0)
 

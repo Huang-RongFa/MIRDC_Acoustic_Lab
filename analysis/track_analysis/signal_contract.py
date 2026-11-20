@@ -1,9 +1,11 @@
 """外部音訊分析的數值核心：每個聲道各自的 Spectrogram 與 MFCC。
 
-定義來自對接規格第 8 節「分析參數契約」，逐項對應如下（改任何一項都必須換 ALGORITHM_VERSION）：
+定義來自對接規格第 8 節「分析參數契約」，並和網站內建分析 backend/analysis_signal.py（v1.4.1）逐項對過數值
+（tests/test_track_reference.py）。逐項對應如下（改任何一項都必須換 ALGORITHM_VERSION）：
 
-  分析取樣率   44100 Hz；來源 44100 原樣使用，48000 以 147/160 polyphase 重取樣，其他取樣率拒絕
+  分析取樣率   44100 Hz；來源 44100 原樣使用，其他取樣率以 polyphase 重取樣（48000 即 147/160）
   STFT         FFT 2048、hop 441、periodic Hann、center=False、只算完整窗、不補任何訊號
+  區間         樣本 [ceil(start*44100), min(總長, floor(end*44100)))；每個窗的時間記在窗的中心
   振幅尺度     |FFT| / sum(window)；DC 與 Nyquist 以外的頻點乘 2（峰值 1.0 的正弦 = 0 dBFS，非校正聲壓）
   Spectrogram  20*log10(max(amplitude, 1e-6))，範圍固定 -120..0 dBFS
   Mel          64 個三角濾波器、HTK 轉換、0..22050 Hz、66 個等距 mel 點、三角形頂點高度 1（不做面積正規化）
@@ -11,6 +13,7 @@
 
 只依賴 numpy / scipy；不讀寫資料庫，也不畫圖（畫圖在 render.py）。
 """
+import math
 from functools import lru_cache
 
 import numpy as np
@@ -23,72 +26,46 @@ HOP_LENGTH = 441
 MEL_BANDS = 64
 MFCC_COUNT = 20
 SPECTROGRAM_DB_RANGE = (-120.0, 0.0)
-ALGORITHM_VERSION = "mirdc-onprem-track-1"
+ALGORITHM_VERSION = "mirdc-onprem-track-2"
 
 _N_BINS = FFT_SIZE // 2 + 1                 # 1025
 _AMPLITUDE_FLOOR = 1e-6                     # -120 dBFS
 _MEL_POWER_FLOOR = 1e-12                    # -120 dB
-_RESAMPLE_UP, _RESAMPLE_DOWN = 147, 160     # 48000 * 147 / 160 = 44100
-_RESAMPLE_TAPS = 128 * max(_RESAMPLE_UP, _RESAMPLE_DOWN) + 1
+_RESAMPLE_TAPS_PER_FACTOR = 128             # FIR 長度 = 128 * max(up, down) + 1
+# 重取樣比例 up/down 兩個數字的上限。常見取樣率（8000～384000 Hz）最大只到 1280（384000 Hz 是 147/1280）。
+# 沒有上限的話，一個取樣率很怪的檔案（例如 2000003 Hz）會要求幾 GB 的濾波器，1 Hz 會把每個樣本放大成 44100 個。
+MAX_RESAMPLE_FACTOR = 2048
 _RESAMPLE_KAISER_BETA = 8.6
 _STFT_CHUNK_FRAMES = 2048                   # 一次做幾個窗的 FFT；只影響記憶體用量，不影響結果
 
+# 寫進 result.parameters。前 16 個鍵和網站內建分析（analysis_signal.PARAMETERS）同名、同型別，
+# 讓前端不管讀到哪一邊的結果都看得懂；後面是地端補充的說明。全部是單層，值只有數字、字串或數字清單。
 PARAMETERS = {
-    "algorithm_version": ALGORITHM_VERSION,
     "analysis_sample_rate": ANALYSIS_SAMPLE_RATE,
-    "supported_source_sample_rates": [44100, 48000],
-    "channels": "each decoded channel analysed on its own; no downmix, no averaging",
     "fft_size": FFT_SIZE,
     "hop_length": HOP_LENGTH,
     "window": "periodic Hann",
-    "center": False,
-    "padding": "none; only full windows are analysed, T = 1 + (N - fft_size) // hop_length",
-    "frame_time": "start of the frame in recording seconds: start_seconds + k * hop_length / analysis_sample_rate",
-    "valid_range": "[start of the first window, end of the last window] in recording seconds",
-    "frequency_bins": _N_BINS,
-    "frequency_range_hz": [0.0, ANALYSIS_SAMPLE_RATE / 2],
-    "amplitude_scaling": "abs(rfft(frame * window)) / sum(window); bins other than DC and Nyquist multiplied by 2",
-    "amplitude_reference": "peak amplitude 1.0 = 0 dBFS (digital full scale, not calibrated sound pressure)",
-    "spectrogram_db": "20 * log10(max(amplitude, 1e-6))",
-    "amplitude_floor": _AMPLITUDE_FLOOR,
-    "spectrogram_db_range": list(SPECTROGRAM_DB_RANGE),
     "mel_bands": MEL_BANDS,
-    "mel": {
-        "scale": "HTK: mel = 2595 * log10(1 + f / 700)",
-        "f_min_hz": 0.0,
-        "f_max_hz": ANALYSIS_SAMPLE_RATE / 2,
-        "points": "mel_bands + 2 points equally spaced in mel; filter m uses points m, m+1, m+2",
-        "shape": "triangular, apex height 1 at the centre point, no area normalisation",
-        "evaluated_at": "the fft_size // 2 + 1 FFT bin frequencies k * analysis_sample_rate / fft_size",
-    },
     "mfcc_count": MFCC_COUNT,
-    "mfcc": {
-        "input": "amplitude ** 2 (the scaled single-sided amplitude above)",
-        "log": "10 * log10(max(mel_power, 1e-12))",
-        "mel_power_floor": _MEL_POWER_FLOOR,
-        "coefficients": "C0..C19 (C0 kept)",
-        "liftering": "none",
-    },
+    "mel_scale": "HTK triangular, unit peak",
     "dct": "II orthonormal",
-    "resampler": {
-        "48000_to_44100": "polyphase (scipy.signal.resample_poly)",
-        "up": _RESAMPLE_UP,
-        "down": _RESAMPLE_DOWN,
-        "fir_taps": _RESAMPLE_TAPS,
-        "fir_design": "windowed sinc (scipy.signal.firwin), unity DC gain",
-        "fir_window": "Kaiser",
-        "kaiser_beta": _RESAMPLE_KAISER_BETA,
-        "cutoff": "1 / max(up, down) of the Nyquist of the upsampled rate (22050 Hz)",
-        "passband_gain": 1.0,
-        "44100": "used unchanged",
-    },
-    "matrices_format": {
-        "container": "numpy.savez_compressed (NPZ)",
-        "spectrogram": "float32 (1025, T), dBFS",
-        "mfcc": "float32 (20, T)",
-        "times": "float64 (T,), frame start in recording seconds",
-        "valid_range": "float64 (2,), recording seconds",
-    },
+    "frequency_range": [0, ANALYSIS_SAMPLE_RATE / 2],
+    "spectrogram_scale": [int(SPECTROGRAM_DB_RANGE[0]), int(SPECTROGRAM_DB_RANGE[1])],
+    "db_reference": "20 log10(one-sided peak amplitude / 1.0); Hann coherent-gain normalized; floor -120 dBFS",
+    "mfcc_power": "squared one-sided peak amplitude; 10 log10(max(mel power, 1e-12)); no per-track reference",
+    "frame_policy": "center=False; complete windows only; no synthetic end padding",
+    "resampling": "scipy resample_poly; FIR 128*max(up,down)+1 taps; cutoff=1/max(up,down); Kaiser beta=8.6",
+    "time_reference": "each recording starts at zero; not sample-synchronized",
+    "algorithm_version": ALGORITHM_VERSION,
+    # ── 地端補充 ──
+    "channels": "each decoded channel analysed on its own; no downmix, no averaging",
+    "interval_samples": "first = ceil(start_seconds * 44100); last = min(total, floor(end_seconds * 44100))",
+    "frame_time": "window centre in recording seconds: (first + k * hop_length + fft_size / 2) / 44100",
+    "valid_range": "[first / 44100, (first + (T - 1) * hop_length + fft_size) / 44100]",
+    "resample_limit": "sources whose up or down factor exceeds 2048 are rejected as a source error",
+    "decoder": "ffmpeg command line to 32-bit float PCM at the decoded sample rate and channel count",
+    "matrices_format": "NPZ (numpy.savez_compressed): spectrogram float32 (1025, T) dBFS; mfcc float32 (20, T); "
+                       "times float64 (T,); valid_range float64 (2,)",
 }
 
 
@@ -103,11 +80,23 @@ def _as_channel(x):
     return x
 
 
-@lru_cache(maxsize=1)
-def _resample_taps():
+def resample_ratio(sample_rate):
+    """(up, down)：sample_rate * up / down = 44100。算法和網站內建分析相同；地端另外設了比例上限（內建沒有）。"""
+    if isinstance(sample_rate, bool) or not isinstance(sample_rate, (int, np.integer)) or sample_rate <= 0:
+        raise ValueError(f"取樣率必須是正整數，收到 {sample_rate!r}")
+    divisor = math.gcd(int(sample_rate), ANALYSIS_SAMPLE_RATE)
+    up, down = ANALYSIS_SAMPLE_RATE // divisor, int(sample_rate) // divisor
+    if max(up, down) > MAX_RESAMPLE_FACTOR:
+        raise ValueError(f"取樣率 {int(sample_rate)} Hz 換算到 44100 Hz 的比例是 {up}/{down}，超過地端的處理上限 {MAX_RESAMPLE_FACTOR}")
+    return up, down
+
+
+@lru_cache(maxsize=4)
+def _resample_taps(up, down):
     # firwin 的直流增益是 1；resample_poly 會自己把係數乘上 up，所以這裡不能再乘，
-    # 否則通帶會多出 20*log10(147) dB（tests/test_track_signal.py 以 0 dBFS 正弦實測）。
-    taps = scipy.signal.firwin(_RESAMPLE_TAPS, 1.0 / max(_RESAMPLE_UP, _RESAMPLE_DOWN),
+    # 否則通帶會多出 20*log10(up) dB（tests/test_track_signal.py 以 0 dBFS 正弦實測）。
+    factor = max(up, down)
+    taps = scipy.signal.firwin(_RESAMPLE_TAPS_PER_FACTOR * factor + 1, 1.0 / factor,
                                window=("kaiser", _RESAMPLE_KAISER_BETA))
     taps.setflags(write=False)
     return taps
@@ -116,11 +105,10 @@ def _resample_taps():
 def resample_to_analysis(x, sample_rate):
     """一維 float64 進、一維 float64（44100 Hz）出。"""
     x = _as_channel(x)
-    if sample_rate == ANALYSIS_SAMPLE_RATE:
+    up, down = resample_ratio(sample_rate)
+    if up == down:
         return x.copy()
-    if sample_rate == 48000:
-        return scipy.signal.resample_poly(x, _RESAMPLE_UP, _RESAMPLE_DOWN, window=_resample_taps())
-    raise ValueError(f"不支援的取樣率 {sample_rate} Hz（只支援 44100 與 48000）")
+    return scipy.signal.resample_poly(x, up, down, window=_resample_taps(up, down))
 
 
 @lru_cache(maxsize=1)
@@ -131,7 +119,7 @@ def _window():
 
 
 def stft_amplitude(x):
-    """x 為 44100 Hz。回傳 (amplitude float64 (1025, T), times float64 (T,))，times 為各窗起點秒數。"""
+    """x 為 44100 Hz。回傳 (amplitude float64 (1025, T), times float64 (T,))，times 為各窗中心相對於 x 開頭的秒數。"""
     x = _as_channel(x)
     n = x.shape[0]
     if n < FFT_SIZE:
@@ -146,7 +134,7 @@ def stft_amplitude(x):
         amplitude[:, first:first + block.shape[0]] = np.abs(scipy.fft.rfft(block, axis=1)).T
     amplitude /= window.sum()
     amplitude[1:-1] *= 2.0                   # 單邊頻譜：DC 與 Nyquist 沒有鏡像，不乘
-    times = np.arange(frame_count) * HOP_LENGTH / ANALYSIS_SAMPLE_RATE
+    times = (np.arange(frame_count) * HOP_LENGTH + FFT_SIZE / 2) / ANALYSIS_SAMPLE_RATE
     return amplitude, times
 
 
@@ -201,19 +189,22 @@ def analyze_channel(x, sample_rate, start_seconds=0.0, end_seconds=None):
             raise ValueError("end_seconds 不可以是 NaN")
     y = resample_to_analysis(x, sample_rate)
     total = y.shape[0]
-    first = int(round(start_seconds * ANALYSIS_SAMPLE_RATE))
-    last = total if end_seconds is None or np.isinf(end_seconds) else int(round(end_seconds * ANALYSIS_SAMPLE_RATE))
+    # 區間端點和網站內建分析一致：起點往後取整、終點往前取整，不會用到區間以外的樣本
+    first = int(math.ceil(start_seconds * ANALYSIS_SAMPLE_RATE))
+    last = total if end_seconds is None or np.isinf(end_seconds) else int(math.floor(end_seconds * ANALYSIS_SAMPLE_RATE))
     last = min(last, total)                  # 超出錄音長度的部分沒有資料，不補
     frames_in_interval = max(0, last - first)
     if frames_in_interval < FFT_SIZE:
         raise NoData(f"區間 [{start_seconds}, {end_seconds}) 秒內只有 {frames_in_interval} 個 44100 Hz 樣本，"
                      f"不足一個完整窗（{FFT_SIZE}）；錄音共 {total / ANALYSIS_SAMPLE_RATE:.3f} 秒")
-    amplitude, relative_times = stft_amplitude(y[first:last])
-    times = start_seconds + relative_times
+    amplitude, _ = stft_amplitude(y[first:last])
+    frame_count = amplitude.shape[1]
+    times = (first + np.arange(frame_count) * HOP_LENGTH + FFT_SIZE / 2) / ANALYSIS_SAMPLE_RATE
     return {
         "spectrogram_db": spectrogram_db(amplitude).astype(np.float32),
         "mfcc": mfcc_from_amplitude(amplitude).astype(np.float32),
         "times": times,
-        "valid_range": [float(times[0]), float(times[-1] + FFT_SIZE / ANALYSIS_SAMPLE_RATE)],
+        "valid_range": [first / ANALYSIS_SAMPLE_RATE,
+                        (first + (frame_count - 1) * HOP_LENGTH + FFT_SIZE) / ANALYSIS_SAMPLE_RATE],
         "analysis_frames": int(frames_in_interval),
     }

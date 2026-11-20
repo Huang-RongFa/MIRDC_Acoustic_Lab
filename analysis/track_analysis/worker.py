@@ -11,6 +11,7 @@
     python -X utf8 analysis/track_analysis/worker.py --pending --once                       # 處理所有還沒有外部結果的 session
 """
 import argparse
+import importlib.metadata
 import json
 import logging
 import os
@@ -45,15 +46,21 @@ def connect(url):
     return c
 
 
-def _expected_end(frames_44k, start_seconds, end_seconds):
-    """這個聲道在要求區間內，最後一個完整窗的結尾（錄音秒數）；資料不足一個窗時回傳 None。"""
-    i0 = int(round(start_seconds * sc.ANALYSIS_SAMPLE_RATE))
-    i1 = frames_44k if end_seconds is None else min(frames_44k, int(round(end_seconds * sc.ANALYSIS_SAMPLE_RATE)))
-    n = i1 - i0
-    if n < sc.FFT_SIZE:
-        return None
-    t = 1 + (n - sc.FFT_SIZE) // sc.HOP_LENGTH
-    return start_seconds + ((t - 1) * sc.HOP_LENGTH + sc.FFT_SIZE) / sc.ANALYSIS_SAMPLE_RATE
+def display_name(row):
+    """顯示名稱，格式和網站內建分析一致：「錄音位置 · 錄音者名稱」，例如「A · 錄音者 A」。"""
+    if row["source_position"]:
+        return f"{row['source_position']} · {row['participant_name']}"
+    return row["participant_name"]
+
+
+def versions():
+    out = {"analysis_service": f"{pub.PRODUCER}/{sc.ALGORITHM_VERSION}", "producer": pub.PRODUCER}
+    for name in ("numpy", "scipy", "matplotlib", "soundfile"):
+        try:
+            out[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            pass
+    return out
 
 
 def session_fingerprint(rows, start_seconds, end_seconds):
@@ -67,7 +74,7 @@ def prepare_sources(conn, session_id, rows, work):
     失敗或缺失的來源寫進 source_errors（規格 6.4），不影響其他來源。"""
     devices, errors = [], []
     for r in rows:
-        ident = {"device_id": str(r["participant_id"]), "device_name": r["device_name"]}
+        ident = {"device_id": str(r["participant_id"]), "device_name": display_name(r)}
         if r["checksum"] is None:
             errors.append({**ident, "status": "missing", "error": "這台裝置的音檔尚未封存"})
             continue
@@ -76,7 +83,6 @@ def prepare_sources(conn, session_id, rows, work):
         try:
             src.rebuild_asset(conn, session_id, r["participant_id"], r, raw)
             sr, channels, frames = src.decode_to_wav(raw, wav)
-            n44 = src.analysis_length(frames, sr)
         except src.SourceError as e:
             errors.append({**ident, "status": "failed", "error": str(e)})
             wav.unlink(missing_ok=True)
@@ -84,8 +90,93 @@ def prepare_sources(conn, session_id, rows, work):
         finally:
             conn.rollback()                      # 結束讀取用的交易，不佔著連線
             raw.unlink(missing_ok=True)
-        devices.append({"row": r, "wav": wav, "sample_rate": sr, "channels": channels, "frames": frames, "frames_44k": n44})
+        devices.append({"row": r, "wav": wav, "sample_rate": sr, "channels": channels, "frames": frames})
     return devices, errors
+
+
+class _Unreadable(Exception):
+    def __init__(self, device, error):
+        super().__init__(error["error"])
+        self.device, self.error = device, error
+
+
+def analyse_devices(devices, session_id, run_id, known_ids, start_seconds, end_seconds, time_range, matrices):
+    """逐台裝置、逐聲道計算並出圖。回傳 (artifacts, result.tracks 的內容, MFCC 色階)。
+
+    一個聲道算不出來或圖畫不出來，只把那個聲道標成 failed，其他聲道照常（和網站內建分析相同）。
+    一次只把一台裝置的音訊讀進記憶體。"""
+    artifacts, entries, mfccs = [], [], {}
+    for d in devices:
+        r, sr = d["row"], d["sample_rate"]
+        pid, name = r["participant_id"], display_name(r)
+        try:
+            data = src.read_wav(d["wav"])
+        except src.SourceError as e:
+            raise _Unreadable(d, {"device_id": str(pid), "device_name": name, "status": "failed", "error": str(e)}) from e
+        for idx, label in enumerate(CHANNEL_LABELS[data.shape[1]]):
+            tid = known_ids.get((pid, idx)) or pub.track_uuid(session_id, pid, idx)
+            entry = {
+                "track_id": str(tid), "session_id": str(session_id), "device_id": str(pid),
+                "device_name": name, "channel_index": idx, "channel_label": label,
+                "source_channel_count": data.shape[1],
+                "requested_sample_rate": r["requested_sample_rate"], "reported_sample_rate": r["reported_sample_rate"],
+                "original_sample_rate": sr, "actual_sample_rate": sr,
+                "analysis_sample_rate": sc.ANALYSIS_SAMPLE_RATE, "duration_seconds": data.shape[0] / sr,
+                "total_frames": int(data.shape[0]), "audio_asset_id": f"{session_id}/{pid}",
+                "source_checksum": r["checksum"], "interrupted": bool(r["interrupted"]),
+                "analysis_status": "no_data", "spectrogram_url": None, "mfcc_url": None}
+            entries.append(entry)
+            try:
+                a = sc.analyze_channel(np.ascontiguousarray(data[:, idx]), sr, start_seconds, end_seconds)
+            except sc.NoData:
+                entry["error"] = "選取區間沒有足夠的有效樣本（至少 2048 samples）"
+                continue
+            except Exception:  # noqa: BLE001
+                log.exception("聲道分析失敗：%s", tid)
+                entry.update({"analysis_status": "failed", "error": "此聲道分析失敗"})
+                continue
+            title = f"{name}｜{label}"
+            try:
+                mine, stored = [(tid, "spectrogram", render.spectrogram_png(a["spectrogram_db"], a["times"], time_range, title))], False
+                if matrices == "always" or (matrices == "auto" and a["spectrogram_db"].nbytes <= 8 * MATRICES_AUTO_LIMIT):
+                    npz = render.matrices_npz(a["spectrogram_db"], a["mfcc"], a["times"], a["valid_range"])
+                    if matrices == "always" or len(npz) <= MATRICES_AUTO_LIMIT:
+                        mine.append((tid, "matrices", npz))
+                        stored = True
+                    del npz
+            except Exception:  # noqa: BLE001
+                log.exception("圖表產生失敗：%s", tid)
+                entry.update({"analysis_status": "failed", "error": "圖表產生失敗"})
+                continue
+            artifacts.extend(mine)
+            entry["matrices_stored"] = stored
+            if not stored and matrices == "auto":
+                entry["matrices_note"] = "矩陣超過自動上限，未寫入資料庫"
+            mfccs[tid] = (a["mfcc"], a["times"], title, entry)
+            entry.update({"analysis_status": "completed", "valid_range": [float(v) for v in a["valid_range"]],
+                          "spectrogram_url": pub.artifact_url(session_id, run_id, tid, "spectrogram"),
+                          "mfcc_url": pub.artifact_url(session_id, run_id, tid, "mfcc")})
+            del a
+        del data
+
+    # MFCC 色階：同一 run 所有成功音軌共用 min/max，不逐張正規化（規格第 8 節）。
+    # 沒有任何成功音軌時的預設值 [-1, 1] 和網站內建分析相同。
+    color_range = [float(min((m.min() for m, _, _, _ in mfccs.values()), default=-1.0)),
+                   float(max((m.max() for m, _, _, _ in mfccs.values()), default=1.0))]
+    if color_range[0] == color_range[1]:
+        color_range[1] += 1.0
+    for tid, (m, times, title, entry) in mfccs.items():
+        try:
+            png = render.mfcc_png(m, times, time_range, color_range, title)
+        except Exception:  # noqa: BLE001
+            log.exception("圖表產生失敗：%s", tid)
+            artifacts[:] = [x for x in artifacts if x[0] != tid]          # 這個聲道已經做好的圖和矩陣也一起撤掉
+            entry.update({"analysis_status": "failed", "error": "圖表產生失敗", "spectrogram_url": None, "mfcc_url": None,
+                          "matrices_stored": False})
+            entry.pop("matrices_note", None)
+            continue
+        artifacts.append((tid, "mfcc", png))
+    return artifacts, entries, color_range
 
 
 def analyse_session(conn, session_id, start_seconds=0.0, end_seconds=None, matrices="auto", force=False, dry_run=None):
@@ -111,75 +202,28 @@ def analyse_session(conn, session_id, start_seconds=0.0, end_seconds=None, matri
 
     with tempfile.TemporaryDirectory(prefix="track_analysis_") as tmp:
         devices, source_errors = prepare_sources(conn, session_id, rows, Path(tmp))
-        # 整批共用的時間軸（規格第 8 節）：由各聲道的長度算出，不必先把音訊讀進來
-        ends = [e for d in devices for e in [_expected_end(d["frames_44k"], start_seconds, end_seconds)] if e is not None]
-        time_range = [start_seconds, float(end_seconds if end_seconds is not None else max(ends))] if ends else None
-
-        artifacts, track_rows, result_tracks, mfccs = [], [], [], {}
-        for d in devices:                                   # 一次只處理一台裝置
-            r, sr = d["row"], d["sample_rate"]
+        while True:
+            # 整批共用的時間軸（規格第 8 節），定義和網站內建分析相同：有指定終點就用它，否則到最長那一軌的結尾。
+            # 由各檔案的長度算出，不必先把音訊讀進來。
+            longest = max((d["frames"] / d["sample_rate"] for d in devices), default=None)
+            time_range = [start_seconds, float(end_seconds if end_seconds is not None
+                                               else (longest if longest is not None else start_seconds + 1.0))]
+            time_range[1] = max(time_range[1], time_range[0] + 0.01)
             try:
-                data = src.read_wav(d["wav"])
-            except src.SourceError as e:
-                source_errors.append({"device_id": str(r["participant_id"]), "device_name": r["device_name"],
-                                      "status": "failed", "error": str(e)})
-                continue
-            finally:
-                d["wav"].unlink(missing_ok=True)
-            for idx, label in enumerate(CHANNEL_LABELS[data.shape[1]]):
-                pid = r["participant_id"]
-                tid = known_ids.get((pid, idx)) or pub.track_uuid(session_id, pid, idx)
-                duration = data.shape[0] / sr
-                entry = {
-                    "track_id": str(tid), "session_id": str(session_id), "device_id": str(pid),
-                    "device_name": r["device_name"], "channel_index": idx, "channel_label": label,
-                    "source_channel_count": data.shape[1],
-                    "requested_sample_rate": r["requested_sample_rate"], "reported_sample_rate": r["reported_sample_rate"],
-                    "original_sample_rate": sr, "actual_sample_rate": sr,
-                    "analysis_sample_rate": sc.ANALYSIS_SAMPLE_RATE, "duration_seconds": duration,
-                    "total_frames": int(data.shape[0]), "audio_asset_id": f"{session_id}/{pid}",
-                    "source_checksum": r["checksum"], "interrupted": bool(r["interrupted"]),
-                    "analysis_status": "no_data", "spectrogram_url": None, "mfcc_url": None}
-                try:
-                    a = sc.analyze_channel(np.ascontiguousarray(data[:, idx]), sr, start_seconds, end_seconds)
-                except sc.NoData:
-                    entry["error"] = "這個區間內的資料不足一個完整的分析窗"
-                else:
-                    title = f"{r['device_name']}｜{label}"
-                    artifacts.append((tid, "spectrogram", render.spectrogram_png(a["spectrogram_db"], a["times"], time_range, title)))
-                    if matrices == "always" or (matrices == "auto" and a["spectrogram_db"].nbytes <= 8 * MATRICES_AUTO_LIMIT):
-                        npz = render.matrices_npz(a["spectrogram_db"], a["mfcc"], a["times"], a["valid_range"])
-                        if matrices == "always" or len(npz) <= MATRICES_AUTO_LIMIT:
-                            artifacts.append((tid, "matrices", npz))
-                            entry["matrices_stored"] = True
-                        del npz
-                    if not entry.get("matrices_stored"):
-                        entry["matrices_stored"] = False
-                        if matrices == "auto":
-                            entry["matrices_note"] = "矩陣超過自動上限，未寫入資料庫"
-                    mfccs[tid] = (a["mfcc"], a["times"], title)
-                    entry.update({"analysis_status": "completed", "valid_range": [float(v) for v in a["valid_range"]],
-                                  "spectrogram_url": pub.artifact_url(session_id, run_id, tid, "spectrogram"),
-                                  "mfcc_url": pub.artifact_url(session_id, run_id, tid, "mfcc")})
-                    del a
-                result_tracks.append(entry)
-                track_rows.append({
-                    "track_id": tid, "device_id": pid, "device_name": r["device_name"],
-                    "channel_index": idx, "channel_label": label, "source_channel_count": data.shape[1],
-                    "requested_sample_rate": r["requested_sample_rate"], "original_sample_rate": sr,
-                    "actual_sample_rate": sr, "analysis_sample_rate": sc.ANALYSIS_SAMPLE_RATE,
-                    "duration_seconds": duration, "total_frames": int(data.shape[0]),
-                    "analysis_status": entry["analysis_status"]})
-            del data
+                artifacts, result_tracks, color_range = analyse_devices(
+                    devices, session_id, run_id, known_ids, start_seconds, end_seconds, time_range, matrices)
+                break
+            except _Unreadable as e:
+                # 解碼成功的檔案後來讀不回來（很少見）：這台改列為來源失敗，其餘重算一次，
+                # 讓共用時間軸只依實際有音軌的裝置決定（和內建分析相同）
+                source_errors.append(e.error)
+                devices = [d for d in devices if d is not e.device]
 
-    # MFCC 色階：同一 run 所有成功音軌共用 min/max，不逐張正規化（規格第 8 節）
-    color_range = None
-    if mfccs:
-        color_range = [float(min(m.min() for m, _, _ in mfccs.values())), float(max(m.max() for m, _, _ in mfccs.values()))]
-        if color_range[0] == color_range[1]:
-            color_range[1] = color_range[0] + 1.0
-        for tid, (m, times, title) in mfccs.items():
-            artifacts.append((tid, "mfcc", render.mfcc_png(m, times, time_range, color_range, title)))
+    track_rows = [{"track_id": uuid.UUID(t["track_id"]), "device_id": uuid.UUID(t["device_id"]),
+                   **{k: t[k] for k in ("device_name", "channel_index", "channel_label", "source_channel_count",
+                                        "requested_sample_rate", "original_sample_rate", "actual_sample_rate",
+                                        "analysis_sample_rate", "duration_seconds", "total_frames", "analysis_status")}}
+                  for t in result_tracks]
 
     done = [t for t in result_tracks if t["analysis_status"] == "completed"]
     if not done:
@@ -188,16 +232,17 @@ def analyse_session(conn, session_id, start_seconds=0.0, end_seconds=None, matri
         status = "partial"
     else:
         status = "completed"
-    ok_devices = {t["device_id"] for t in done} - {t["device_id"] for t in result_tracks if t["analysis_status"] != "completed"}
+    # 下面四個欄位的算法和網站內建分析（backend/analysis.py）相同，前端不管讀到哪一邊的結果，意思都一樣
     result = {
         "session_id": str(session_id), "run_id": str(run_id), "status": status,
         "analysis_sample_rate": sc.ANALYSIS_SAMPLE_RATE,
-        "completed_device_count": len(ok_devices), "analyzable_track_count": len(done),
-        "duration_seconds": (time_range[1] - time_range[0]) if time_range else 0.0,
+        "completed_device_count": sum(1 for r in rows if r["checksum"]),      # 已完整封存的裝置數
+        "analyzable_track_count": len(done),
+        "duration_seconds": max((t["duration_seconds"] for t in result_tracks), default=0),   # 最長那一軌的原始時長
         "time_range": time_range, "mfcc_color_range": color_range,
         "spectrogram_color_range": list(sc.SPECTROGRAM_DB_RANGE),
         "parameters": sc.PARAMETERS,
-        "versions": {"analysis_service": f"{pub.PRODUCER}/{sc.ALGORITHM_VERSION}", "producer": pub.PRODUCER},
+        "versions": versions(),
         "source_errors": source_errors, "tracks": result_tracks}
 
     summary = {"session_id": str(session_id), "run_id": str(run_id), "status": status, "skipped": False,

@@ -1,6 +1,7 @@
 """把分析矩陣畫成前端直接顯示的 PNG，並匯出 NPZ 數值檔。
 
-每一個 frame 畫在它真正涵蓋的時間 [t, t + hop/sr)；times 中間若有缺口，缺口維持底色，不跨越內插。
+times 是每個分析窗的中心（和網站內建分析的定義相同）。每一個 frame 畫在以它為中心、寬一個 hop 的位置
+[t - hop/2, t + hop/2)；times 中間若有缺口，缺口維持底色，不跨越內插。
 時間軸範圍與色階由呼叫端傳入（同一個 run 的所有音軌共用），這裡不逐張正規化。
 """
 import io
@@ -73,7 +74,7 @@ def _draw(matrix, times, time_range, y_extent, norm, cmap, title, x_label, y_lab
         ax.set_facecolor(_NO_DATA_COLOUR)
         for run in _contiguous_runs(times):
             ax.imshow(matrix[:, run], origin="lower", aspect="auto", cmap=cmap, norm=norm,
-                      extent=(times[run[0]], times[run[-1]] + _FRAME_STEP, y_extent[0], y_extent[1]))
+                      extent=(times[run[0]] - _FRAME_STEP / 2, times[run[-1]] + _FRAME_STEP / 2, y_extent[0], y_extent[1]))
         ax.set_xlim(*time_range)
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
