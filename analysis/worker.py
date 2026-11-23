@@ -27,10 +27,12 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-PIPELINE_VERSION = "multi_mic-v1"
+PIPELINE_VERSION = "multi_mic-v2"       # v2（2026-11-23）：分數尺度固定、漂移擬合排除反射窗、雙聲道裝置保留左右兩軌
 HERE = Path(__file__).resolve().parent
 ANALYZER = HERE / "analyze_multi_mic.py"
 LABELS = ("A", "B", "C")
+COPIED_MONO_DB = -40.0                 # 左右相減的能量低於訊號這麼多，就當成單聲道複製出來的雙聲道檔
+ALIGN_FAIL = "精對齊失敗"              # 模型在獨立時鐘的軌對不上時丟出的訊息開頭（analyze_multi_mic.fine_offset）
 log = logging.getLogger("analysis_worker")
 
 
@@ -153,7 +155,7 @@ def _finite(v):
 def alignment_verdict(summary):
     """對齊後重量一次的殘差都夠小才算「已驗證」；否則數字不可當作同步結果使用。
     以實際送進分析的聲源為準：每一支非 A 聲源都必須有 <聲源>_vs_A 且殘差欄位是有限數字。
-    例外：與 A 同一時鐘的聲源（分析時以 --same-clock 宣告，網站錄音不會有）不做對齊，硬體上本來就同步；
+    例外：與 A 同一時鐘的聲源（分析時以 --same-clock 宣告；網站錄音裡是同一台雙聲道裝置的左右聲道）不做對齊，硬體上本來就同步；
     只在給了間距、且量到的到達時間差超過物理上限時判定不通過。"""
     channels = [k for k in (summary.get("channels") or []) if k in LABELS]
     sync = summary.get("sync") if isinstance(summary.get("sync"), dict) else {}
@@ -236,8 +238,8 @@ def fetch_tracks(c, session_id, dest):
         "WHERE pr.session_id=%s AND pr.status='stored' ORDER BY pr.source_position", (session_id,)).fetchall()
     c.commit()
     labels = [r["source_label"] for r in rows]
-    if labels not in (["A", "B"], ["A", "B", "C"]):
-        raise UnsupportedLayout(f"同步模型僅支援 A/B 或 A/B/C，本批次封存位置：{labels}。原始錄音可於錄音結果查閱。")
+    if labels not in (["A"], ["A", "B"], ["A", "B", "C"]):      # 只有 A 時要等解碼後才知道是不是雙聲道（plan_tracks 再判定）
+        raise UnsupportedLayout(unsupported_message(labels))
     if any(r["checksum"] is None for r in rows):
         raise JobError("已封存錄音缺少音檔索引")
     paths = {}
@@ -263,13 +265,82 @@ def fetch_tracks(c, session_id, dest):
     return paths
 
 
-def decode(webm, wav, sr=48000):
+def unsupported_message(labels):
+    return (f"同步模型僅支援 A/B、A/B/C，或單一台雙聲道裝置；本批次封存位置：{list(labels)}。"
+            "原始錄音可於錄音結果查閱。")
+
+
+def decode_native(webm, wav, sr=48000):
+    """解碼成 wav，不混聲道。回傳聲道數：2 代表左右內容不同的雙聲道；
+    單聲道麥克風被瀏覽器複製成雙聲道的檔算 1。判斷方式：左右相減的能量比訊號低 40 dB 以上。
+    不能用「完全相同」判斷：Opus 編碼後左右會有很小的差異（實測 −70 dB）；兩支真的麥克風則在 0 dB 上下。"""
+    import numpy as np
+    import soundfile as sf
+    webm, wav = Path(webm), Path(wav)
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(webm),
-           "-ac", "1", "-ar", str(sr), "-c:a", "pcm_f32le", str(wav)]
+           "-vn", "-ar", str(sr), "-c:a", "pcm_f32le", str(wav)]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if p.returncode != 0 or not wav.exists():
         log.error("ffmpeg 失敗：%s", p.stderr[-2000:])
         raise JobError(f"{webm.stem} 解碼失敗")
+    info = sf.info(str(wav))
+    if info.channels == 1:
+        return 1
+    if info.channels != 2:
+        raise JobError(f"{webm.stem} 解碼後是 {info.channels} 聲道；只支援單聲道與雙聲道")
+    diff = total = 0.0
+    for block in sf.blocks(str(wav), blocksize=1 << 18, dtype="float64", always_2d=True):
+        diff += float(np.sum((block[:, 0] - block[:, 1]) ** 2))
+        total += float(np.sum(block ** 2)) / 2
+    return 2 if diff > total * 10 ** (COPIED_MONO_DB / 10) else 1
+
+
+def plan_tracks(channels):
+    """channels：{網站上的位置代號: 聲道數}。回傳模型要吃的軌道安排：
+    {"mode": "none"｜"split"｜"downmixed", "tracks": {模型軌道: {"source": 位置代號, "channel": ...}}, "same_clock": [...]}。
+    - 整場只有一台雙聲道裝置、拆開後不超過 3 軌 → split：左＝A、右＝B（與 A 同一時鐘），另一台單聲道裝置＝C。
+      模型只支援「與 A 同一時鐘」，所以雙聲道裝置一定排在 A、B，不管它在網站上是哪個位置。
+    - 其他情況：每台裝置一軌，雙聲道的混成一軌（Mix），和 v1 相同。"""
+    labels = sorted(channels)
+    stereo = [k for k in labels if channels[k] == 2]
+    if labels == ["A"] and stereo == ["A"]:
+        return {"mode": "split", "same_clock": ["B"],
+                "tracks": {"A": {"source": "A", "channel": "Left"}, "B": {"source": "A", "channel": "Right"}}}
+    if labels not in (["A", "B"], ["A", "B", "C"]):
+        raise UnsupportedLayout(unsupported_message(labels))
+    if len(stereo) == 1 and len(labels) == 2:
+        other = next(k for k in labels if k != stereo[0])
+        return {"mode": "split", "same_clock": ["B"],
+                "tracks": {"A": {"source": stereo[0], "channel": "Left"}, "B": {"source": stereo[0], "channel": "Right"},
+                           "C": {"source": other, "channel": "Mono"}}}
+    return downmix_plan(channels)
+
+
+def downmix_plan(channels):
+    labels = sorted(channels)
+    return {"mode": "downmixed" if any(channels[k] == 2 for k in labels) else "none", "same_clock": [],
+            "tracks": {k: {"source": k, "channel": "Mix" if channels[k] == 2 else "Mono"} for k in labels}}
+
+
+def write_tracks(native, plan, dest):
+    """依軌道安排，從各裝置解碼後的 wav 寫出模型要吃的單聲道 wav。回傳 {模型軌道: 路徑}。"""
+    import soundfile as sf
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    out, loaded = {}, {}
+    for label, t in plan["tracks"].items():
+        if t["source"] not in loaded:
+            loaded[t["source"]] = sf.read(str(native[t["source"]]), dtype="float32", always_2d=True)
+        data, sr = loaded[t["source"]]
+        if t["channel"] == "Right":
+            y = data[:, 1]
+        elif t["channel"] == "Mix":
+            y = data.mean(axis=1)
+        else:                                   # Left，或單聲道（左右相同的假雙聲道也取第一軌）
+            y = data[:, 0]
+        out[label] = dest / f"{label}.wav"
+        sf.write(str(out[label]), y, sr, subtype="FLOAT")
+    return out
 
 
 _PATHISH = re.compile(r"[A-Za-z]:[\\/]|[\\/]")
@@ -293,7 +364,7 @@ class LeaseLost(Exception):
     """這次嘗試已不再擁有工作（別人重新認領）。"""
 
 
-def analyse(wavs, out, note, timeout_s, cancel=None, analyzer=None):
+def analyse(wavs, out, note, timeout_s, cancel=None, analyzer=None, same_clock=()):
     """另開程序跑模型：記憶體在程序結束時釋放，模型崩潰也不會帶走 worker。
     cancel（threading.Event）被設定時立刻終止子程序，避免失去租約後還在佔用資源。"""
     out.mkdir(parents=True, exist_ok=True)
@@ -301,6 +372,8 @@ def analyse(wavs, out, note, timeout_s, cancel=None, analyzer=None):
            "--out", str(out), "--source-note", note]
     if "C" in wavs:
         cmd += ["--c", str(wavs["C"])]
+    if same_clock:
+        cmd += ["--same-clock", ",".join(same_clock)]
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "MPLBACKEND": "Agg"}
     logf = out / "analyzer.log"
     with open(logf, "w", encoding="utf-8") as fh:
@@ -335,13 +408,38 @@ def process(url, job, worker_id, work_dir, lease_s, timeout_s):
     try:
         with connect(url) as c:
             webms = fetch_tracks(c, job["session_id"], local)
-        wavs = {}
+        native, channels = {}, {}
         for k, w in webms.items():
             if hb.lost.is_set():
                 raise LeaseLost()
-            wavs[k] = local / f"{k}.wav"
-            decode(w, wavs[k])
-        summary = analyse(wavs, local / "out", f"session {job['session_id']} job {job['id']}", timeout_s, hb.lost)
+            native[k] = local / f"{k}.wav"
+            try:
+                channels[k] = decode_native(w, native[k])
+            except JobError:
+                if len(webms) == 1:             # 只有一台裝置而且解不開：不是「單一台雙聲道裝置」，照舊判定為不支援
+                    raise UnsupportedLayout(unsupported_message(list(webms))) from None
+                raise
+        plan = plan_tracks(channels)
+        stereo = [k for k in sorted(channels) if channels[k] == 2]
+        note = f"session {job['session_id']} job {job['id']}"
+        info = {"mode": plan["mode"]}
+        try:
+            wavs = write_tracks(native, plan, local / "tracks")
+            summary = analyse(wavs, local / "out", note, timeout_s, hb.lost, same_clock=plan["same_clock"])
+        except JobError as e:
+            # 拆成左右之後，獨立麥克風對不上左聲道：退回每台裝置一軌（v1 的做法）再算一次，並寫明原因。
+            if not (plan["mode"] == "split" and len(channels) >= 2 and ALIGN_FAIL in str(e)):
+                raise
+            if hb.lost.is_set():
+                raise LeaseLost() from None
+            log.warning("工作 %s：雙聲道拆開後對齊失敗，退回每台裝置一軌重算", job["id"])
+            plan = downmix_plan(channels)
+            info = {"mode": plan["mode"], "reason": str(e)[:300]}
+            wavs = write_tracks(native, plan, local / "tracks_downmix")
+            summary = analyse(wavs, local / "out_downmix", note, timeout_s, hb.lost)
+        # 模型的軌道代號（A/B/C）和網站上的位置代號不一定相同，對照寫進結果
+        summary["track_sources"] = plan["tracks"]
+        summary["stereo"] = {**info, "source": stereo[0] if len(stereo) == 1 else None, "sources": stereo}
     finally:
         hb.stop.set()
         hb.join(timeout=5)
