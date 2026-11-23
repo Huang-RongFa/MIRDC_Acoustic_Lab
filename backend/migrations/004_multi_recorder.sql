@@ -8,7 +8,7 @@ ALTER TABLE room_participants ALTER COLUMN source_label DROP NOT NULL, DROP CONS
 ALTER TABLE audio_chunks DROP CONSTRAINT audio_chunks_source_label_check, ADD CHECK(source_label IN ('A','B','C','D','E'));
 ALTER TABLE room_participants ADD COLUMN leaving boolean NOT NULL DEFAULT false, ADD COLUMN microphone_permission text NOT NULL DEFAULT 'unknown', ADD COLUMN revoked boolean NOT NULL DEFAULT false, ADD COLUMN recorder_id uuid NOT NULL DEFAULT gen_random_uuid();
 ALTER TABLE recording_rooms ADD COLUMN assignment_version bigint NOT NULL DEFAULT 0, ADD COLUMN event_version bigint NOT NULL DEFAULT 0, ADD COLUMN closing boolean NOT NULL DEFAULT false;
-ˊ˙ALTER TABLE participant_recordings ADD COLUMN source_position text;
+ALTER TABLE participant_recordings ADD COLUMN source_position text;
 UPDATE participant_recordings t SET source_position=p.source_label FROM room_participants p WHERE p.id=t.participant_id;
 ALTER TABLE recording_sessions DROP CONSTRAINT recording_sessions_room_id_key;
 CREATE UNIQUE INDEX one_open_session ON recording_sessions(room_id) WHERE status NOT IN ('completed','interrupted');
