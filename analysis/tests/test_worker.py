@@ -16,7 +16,6 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import psycopg
-import soundfile as sf
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -48,7 +47,7 @@ def fresh_db():
         a.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
     try:
         with psycopg.connect(url_for(name), autocommit=True) as c:
-            for f in MIGRATIONS + [ROLE_SQL]:
+            for f in [ROOT / "CNC_Acoustic_Lab_DB_v1_2/01_schema_complete.sql", *MIGRATIONS, ROLE_SQL]:
                 c.execute(f.read_text(encoding="utf-8"))
         yield url_for(name), url_for(name, "analysis_worker")
     finally:
@@ -62,14 +61,15 @@ def seed_session(admin_url, tracks, corrupt=None, complete=True):
     with psycopg.connect(admin_url) as c:
         c.execute("SET search_path TO mobile_capture")
         c.execute("INSERT INTO recording_rooms(id,code) VALUES(%s,%s)", (room, uuid.uuid4().hex[:6].upper()))
-        c.execute("INSERT INTO recording_sessions(id,room_id,status) VALUES(%s,%s,'finalizing')", (session, room))
+        machine = c.execute("INSERT INTO public.machines(machine_code,machine_name) VALUES(%s,'Test machine') RETURNING machine_id", (str(session),)).fetchone()[0]
+        c.execute("INSERT INTO recording_sessions(id,room_id,status,machine_id) VALUES(%s,%s,'finalizing',%s)", (session, room, machine))
         for label, data in tracks.items():
             pid = uuid.uuid4()
             c.execute("INSERT INTO room_participants(id,room_id,source_label,name,token_hash,is_host) VALUES(%s,%s,%s,%s,%s,%s)",
                       (pid, room, label, label, uuid.uuid4().hex, label == "A"))
             chunks = [data[i:i + 32768] for i in range(0, len(data), 32768)]
-            c.execute("INSERT INTO participant_recordings(session_id,participant_id,room_id,status,mime_type,expected_chunks,actual_started_at) "
-                      "VALUES(%s,%s,%s,'stored',%s,%s,0)", (session, pid, room, MIME, len(chunks)))
+            c.execute("INSERT INTO participant_recordings(session_id,participant_id,room_id,source_position,status,mime_type,expected_chunks,actual_started_at) "
+                      "VALUES(%s,%s,%s,%s,'stored',%s,%s,0)", (session, pid, room, label, MIME, len(chunks)))
             for i, ch in enumerate(chunks):
                 digest = hashlib.sha256(ch).hexdigest()
                 if corrupt == (label, i):
@@ -95,6 +95,7 @@ def synthetic_webm():
     """合成三麥克風（已知偏移、C 有 25 ppm 漂移、含嗶聲）→ Opus webm，和手機上傳的格式相同。"""
     if _WEBM:
         return _WEBM
+    import soundfile as sf
     import test_synthetic as ts
     rec = ts.recordings(with_chirp=True)
     with tempfile.TemporaryDirectory() as d:
@@ -108,6 +109,31 @@ def synthetic_webm():
 
 
 # ---------- 測試 ----------
+
+def test_archived_positions_survive_departure():
+    with fresh_db() as (admin, role), tempfile.TemporaryDirectory() as work:
+        session = seed_session(admin, {"A": b"first", "B": b"second"})
+        with psycopg.connect(admin) as c:
+            c.execute("UPDATE mobile_capture.room_participants SET source_label=NULL")
+        with worker.connect(role) as c:
+            files = worker.fetch_tracks(c, session, Path(work))
+        assert {label: path.read_bytes() for label, path in files.items()} == {"A": b"first", "B": b"second"}
+
+
+def test_unsupported_layout_preserves_every_asset():
+    for labels in ("A", "ABCD", "ABCDE"):
+        with fresh_db() as (admin, role), tempfile.TemporaryDirectory() as work:
+            session = seed_session(admin, {k: k.encode() for k in labels})
+            assert worker.run_once(role, "layout-test", work, 60, 60, "test") is False
+            assert worker.run_once(role, "layout-test", work, 60, 60, "test") is None
+            status, attempts, message, *_ = jobs(admin)[0]
+            assert status == "failed" and attempts == 1 and "同步模型僅支援" in message
+            with psycopg.connect(admin) as c:
+                rows = c.execute("SELECT pr.source_position,ch.audio_data FROM mobile_capture.participant_recordings pr "
+                                 "JOIN mobile_capture.audio_chunks ch USING(session_id,participant_id) WHERE pr.session_id=%s",
+                                 (session,)).fetchall()
+                assert {k: bytes(data) for k, data in rows} == {k: k.encode() for k in labels}
+
 
 def test_completion_trigger_enqueues_exactly_once():
     with fresh_db() as (admin, _):
@@ -235,7 +261,7 @@ def test_rerunning_role_script_removes_previous_column_grants():
             q = "SELECT has_column_privilege('analysis_worker','mobile_capture.room_participants',%s,'SELECT')"
             assert c.execute(q, ("token_hash",)).fetchone()[0] is False
             assert c.execute(q, ("name",)).fetchone()[0] is False
-            assert c.execute(q, ("source_label",)).fetchone()[0] is True
+            assert c.execute(q, ("source_label",)).fetchone()[0] is False
             assert c.execute("SELECT has_table_privilege('analysis_worker','mobile_capture.recording_sessions','SELECT')").fetchone()[0] is False
 
 

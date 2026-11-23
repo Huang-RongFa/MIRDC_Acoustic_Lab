@@ -1,0 +1,45 @@
+import {test,expect} from '@playwright/test';
+
+test('real four-track analysis: layout, ordering, zoom, download, intervals and sessions',async({page})=>{
+  const fsModule='node:fs/promises';const fs=await import(fsModule);
+  const fixture=JSON.parse(await fs.readFile('../tmp/analysis-ui-fixture.json','utf8'));
+  await page.goto('/');
+  await page.evaluate(async({identity})=>{
+    const componentPath='/src/RecordingAnalysis.tsx',reactPath='/node_modules/.vite/deps/react.js',domPath='/node_modules/.vite/deps/react-dom_client.js';
+    const [{RecordingAnalysis},{default:React},{default:ReactDOM}]=await Promise.all([import(componentPath),import(reactPath),import(domPath)]);
+    document.getElementById('root')!.style.display='none';
+    const root=document.createElement('main');root.className='shell';document.body.append(root);
+    ReactDOM.createRoot(root).render(React.createElement(RecordingAnalysis,{identity,room:{id:identity.session_id,status:'completed'}}));
+  },fixture);
+  await expect(page.locator('.analysis-chart')).toHaveCount(8);
+  await expect(page.locator('.chart-image img')).toHaveCount(8);
+  const grids=page.locator('.analysis-grid');
+  expect(await grids.nth(0).locator('h3').allTextContents()).toEqual(await grids.nth(1).locator('h3').allTextContents());
+  await page.setViewportSize({width:1440,height:1000});
+  expect(await grids.first().evaluate(node=>getComputedStyle(node).gridTemplateColumns.split(' ').length)).toBe(2);
+  await page.screenshot({path:'../tmp/analysis-desktop.png',fullPage:true});
+  await page.getByRole('button',{name:'放大',exact:true}).first().click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+  const downloaded=page.waitForEvent('download');
+  await page.getByRole('link',{name:'下載 PNG'}).first().click();
+  expect((await downloaded).suggestedFilename()).toMatch(/Spectrogram\.png$/);
+  await page.setViewportSize({width:390,height:844});
+  expect(await grids.first().evaluate(node=>getComputedStyle(node).gridTemplateColumns.split(' ').length)).toBe(1);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'../tmp/analysis-mobile.png',fullPage:true});
+  await page.getByLabel('開始（秒）',{exact:true}).fill('0.1');
+  await page.getByLabel('結束（秒，空白為整段）').fill('0.25');
+  const previous=await page.locator('.chart-image img').first().getAttribute('src');
+  const submitted=page.waitForResponse(response=>response.url().includes('/analysis')&&response.request().method()==='POST');
+  await page.getByRole('button',{name:'套用時間並分析'}).click();
+  expect((await submitted).status()).toBe(202);
+  await expect(page.locator('.chart-image img')).toHaveCount(8,{timeout:60000});
+  await expect(page.locator('.chart-image img').first()).not.toHaveAttribute('src',previous!);
+  await page.getByLabel('錄音批次 Session').selectOption(fixture.other_session);
+  await expect(page.locator('.analysis-chart')).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'套用時間並分析'})).toBeDisabled();
+  await page.getByLabel('錄音批次 Session').selectOption(fixture.identity.session_id);
+  await expect(page.locator('.chart-image img')).toHaveCount(8);
+});

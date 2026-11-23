@@ -5,7 +5,7 @@ export async function api<T>(path:string, identity:Identity|null=null, init:Requ
   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);
   try{
     const response=await fetch('/api'+path,{...init,signal:init.signal??controller.signal,headers:{...(identity?{Authorization:'Bearer '+identity.token}:{}),...(init.body && typeof init.body==='string'?{'Content-Type':'application/json'}:{}),...init.headers}});
-    if(!response.ok){const error=await response.json().catch(()=>({detail:'伺服器暫時無法連線'}));throw new Error(typeof error.detail==='string'?error.detail:'請檢查必填欄位與數值範圍');}
+    if(!response.ok){const error=await response.json().catch(()=>({detail:`伺服器處理失敗（HTTP ${response.status}），請稍後重試或聯絡主控者`}));throw new Error(typeof error.detail==='string'?error.detail:'請檢查必填欄位與數值範圍');}
     return await response.json();
   }finally{clearTimeout(timeout);}
 }

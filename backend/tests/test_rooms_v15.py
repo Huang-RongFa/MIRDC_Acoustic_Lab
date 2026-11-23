@@ -6,8 +6,8 @@ from backend.app import create_app
 
 
 def test_secure_six_character_codes_and_room_identity():
-    with TestClient(create_app(os.environ['TEST_DATABASE_URL'])) as client:
-        rooms = [client.post('/api/rooms', json={'name': 'A'}).json() for _ in range(20)]
+    with TestClient(create_app(os.environ['TEST_DATABASE_URL']),client=('127.0.0.1',50000)) as client:
+        rooms = [client.post('/api/rooms', json={'name':'A','record_as_host':True}).json() for _ in range(20)]
         assert all(re.fullmatch(r'[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}', r['room_code']) for r in rooms)
         assert len({r['room_code'] for r in rooms}) == 20
         assert all(r['room_id'] and r['token'] for r in rooms)
@@ -15,8 +15,8 @@ def test_secure_six_character_codes_and_room_identity():
 
 def test_code_collision_retries_without_overwriting_room(monkeypatch):
     import backend.app as module
-    with TestClient(create_app(os.environ['TEST_DATABASE_URL'])) as c:
-        first=c.post('/api/rooms',json={'name':'A'}).json()
+    with TestClient(create_app(os.environ['TEST_DATABASE_URL']),client=('127.0.0.1',50000)) as c:
+        first=c.post('/api/rooms',json={'name':'A','record_as_host':True}).json()
         # Force one collision at the randomness boundary, then resume secure generation.
         choice=module.secrets.choice
         letters=iter(first['room_code'])
@@ -28,8 +28,8 @@ def test_code_collision_retries_without_overwriting_room(monkeypatch):
 
 
 def test_auto_slots_rejoin_and_close():
-    with TestClient(create_app(os.environ['TEST_DATABASE_URL'])) as c:
-        host = c.post('/api/rooms', json={'name': 'A'}).json()
+    with TestClient(create_app(os.environ['TEST_DATABASE_URL']),client=('127.0.0.1',50000)) as c:
+        host = c.post('/api/rooms', json={'name':'A','record_as_host':True}).json()
         base = '/api/rooms/' + host['room_code']
         auth = {'Authorization': 'Bearer ' + host['token']}
         b = c.post(base + '/join', json={'name': 'B'}).json()
@@ -43,13 +43,13 @@ def test_auto_slots_rejoin_and_close():
         assert c.post(base + '/close', headers={'Authorization': 'Bearer ' + b['token']}).status_code == 403
         assert c.post(base + '/close', headers=auth).status_code == 200
         assert c.post(base + '/join', json={'name': 'late'}).status_code == 410
-        assert c.post(base + '/start', headers=auth).status_code == 410
+        assert c.post(base + '/start', headers=auth).status_code == 403
 
 
 def test_expired_room_cannot_join():
     import psycopg
-    with TestClient(create_app(os.environ['TEST_DATABASE_URL'])) as c:
-        host = c.post('/api/rooms', json={'name': 'A'}).json()
+    with TestClient(create_app(os.environ['TEST_DATABASE_URL']),client=('127.0.0.1',50000)) as c:
+        host = c.post('/api/rooms', json={'name':'A','record_as_host':True}).json()
         with psycopg.connect(os.environ['TEST_DATABASE_URL']) as db:
             db.execute("UPDATE mobile_capture.recording_rooms SET expires_at=now()-interval '1 second' WHERE id=%s", (host['room_id'],))
         assert c.post('/api/rooms/' + host['room_code'] + '/join', json={'name': 'B'}).status_code == 410
@@ -57,8 +57,8 @@ def test_expired_room_cannot_join():
 
 def test_disconnect_reports_uncertainty_and_reconnect_keeps_slot():
     from backend.tests.test_api import receive_type
-    with TestClient(create_app(os.environ['TEST_DATABASE_URL'])) as c:
-        host = c.post('/api/rooms', json={'name': 'A'}).json()
+    with TestClient(create_app(os.environ['TEST_DATABASE_URL']),client=('127.0.0.1',50000)) as c:
+        host = c.post('/api/rooms', json={'name':'A','record_as_host':True}).json()
         path = '/api/rooms/' + host['room_code']
         headers = {'Authorization':'Bearer '+host['token']}
         with c.websocket_connect(path + '/ws') as ws:
@@ -78,18 +78,20 @@ def test_disconnect_reports_uncertainty_and_reconnect_keeps_slot():
 def test_missing_start_ack_and_finish_are_reported_without_automatic_stop():
     import time
     from contextlib import ExitStack
-    from backend.tests.test_api import CONDITIONS, receive_type
+    from backend.tests.test_api import machine_conditions, receive_type
     with TestClient(create_app(os.environ['TEST_DATABASE_URL'], countdown_seconds=0.01,
-                              acknowledgement_seconds=0.05, finalization_seconds=0.05)) as c, ExitStack() as stack:
-        host = c.post('/api/rooms', json={'name':'A'}).json()
+                              acknowledgement_seconds=0.05, finalization_seconds=0.05),client=('127.0.0.1',50000)) as c, ExitStack() as stack:
+        host = c.post('/api/rooms', json={'name':'A','record_as_host':True}).json()
         path = '/api/rooms/' + host['room_code']
         auth = {'Authorization':'Bearer '+host['token']}
         people = [host]+[c.post(path+'/join',json={'name':label}).json() for label in 'BC']
-        c.put(path+'/conditions',headers=auth,json=CONDITIONS)
+        c.put(path+'/conditions',headers=auth,json=machine_conditions())
         sockets=[]
         for person in people:
             ws=stack.enter_context(c.websocket_connect(path+'/ws'))
             ws.send_json({'type':'auth','token':person['token']})
+            receive_type(ws,'state')
+            ws.send_json({'type':'mic','mic':True})
             receive_type(ws,'state')
             ws.send_json({'type':'ready','mic':True})
             receive_type(ws,'state')

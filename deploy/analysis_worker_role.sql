@@ -12,8 +12,7 @@ ALTER ROLE analysis_worker NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLI
 REVOKE ALL ON ALL TABLES IN SCHEMA mobile_capture FROM analysis_worker;
 GRANT USAGE ON SCHEMA mobile_capture TO analysis_worker;
 -- 讀：找出已封存的音軌與音段。room_participants 只開 id 與聲源代號（不能讀 token_hash、姓名）
-GRANT SELECT (id, source_label) ON mobile_capture.room_participants TO analysis_worker;
-GRANT SELECT (session_id, participant_id, status) ON mobile_capture.participant_recordings TO analysis_worker;
+GRANT SELECT (session_id, participant_id, source_position, status) ON mobile_capture.participant_recordings TO analysis_worker;
 GRANT SELECT ON mobile_capture.audio_assets, mobile_capture.audio_chunks TO analysis_worker;
 -- 工作佇列：只能讀與改狀態，不能新增或刪除工作
 GRANT SELECT ON mobile_capture.analysis_jobs TO analysis_worker;

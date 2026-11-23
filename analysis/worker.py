@@ -132,13 +132,13 @@ class Heartbeat(threading.Thread):
                 log.warning("延長租約失敗（下次重試）：%s", e)
 
 
-def fail(c, job, worker_id, message):
+def fail(c, job, worker_id, message, retry=True):
     # 重試與否用資料庫當下的 attempts／max_attempts 判斷，不用認領時的快取值
     c.execute(
-        "UPDATE analysis_jobs SET status=CASE WHEN attempts<max_attempts THEN 'queued' ELSE 'failed' END, "
+        "UPDATE analysis_jobs SET status=CASE WHEN %(retry)s AND attempts<max_attempts THEN 'queued' ELSE 'failed' END, "
         "error=%(e)s, worker_id=NULL, lease_expires_at=NULL, "
-        "finished_at=CASE WHEN attempts<max_attempts THEN NULL ELSE now() END WHERE " + OWNED,
-        {"e": message[:500], "id": job["id"], "w": worker_id, "n": job["attempts"]})
+        "finished_at=CASE WHEN %(retry)s AND attempts<max_attempts THEN NULL ELSE now() END WHERE " + OWNED,
+        {"retry": retry, "e": message[:500], "id": job["id"], "w": worker_id, "n": job["attempts"]})
     c.commit()
 
 
@@ -224,17 +224,22 @@ def complete(c, job, worker_id, summary):
 
 # ---------- 下載與解碼 ----------
 
+class UnsupportedLayout(JobError):
+    pass
+
+
 def fetch_tracks(c, session_id, dest):
     """依 audio_assets 校驗每段 SHA256、段數與整檔 SHA256，寫出 <聲源>.webm。"""
     rows = c.execute(
-        "SELECT p.source_label, a.participant_id, a.chunk_count, a.checksum, a.mime_type "
-        "FROM audio_assets a JOIN room_participants p ON p.id=a.participant_id "
-        "JOIN participant_recordings pr ON pr.session_id=a.session_id AND pr.participant_id=a.participant_id "
-        "WHERE a.session_id=%s AND pr.status='stored' ORDER BY p.source_label", (session_id,)).fetchall()
+        "SELECT pr.source_position AS source_label, pr.participant_id, a.chunk_count, a.checksum, a.mime_type "
+        "FROM participant_recordings pr LEFT JOIN audio_assets a USING (session_id,participant_id) "
+        "WHERE pr.session_id=%s AND pr.status='stored' ORDER BY pr.source_position", (session_id,)).fetchall()
     c.commit()
     labels = [r["source_label"] for r in rows]
-    if "A" not in labels or "B" not in labels:
-        raise JobError(f"已封存音檔不足：至少需要 A 與 B，目前 {labels or '無'}")
+    if labels not in (["A", "B"], ["A", "B", "C"]):
+        raise UnsupportedLayout(f"同步模型僅支援 A/B 或 A/B/C，本批次封存位置：{labels}。原始錄音可於錄音結果查閱。")
+    if any(r["checksum"] is None for r in rows):
+        raise JobError("已封存錄音缺少音檔索引")
     paths = {}
     for r in rows:
         whole, n = hashlib.sha256(), 0
@@ -354,11 +359,15 @@ def run_once(url, worker_id, work_dir, lease_s, timeout_s, commit_id):
     if not job:
         return None
     log.info("認領工作 %s（session %s，第 %d 次）", job["id"], job["session_id"], job["attempts"])
+    retry = True
     try:
         return process(url, job, worker_id, work_dir, lease_s, timeout_s)
     except LeaseLost:
         log.warning("工作 %s 已被重新認領，停止本次嘗試且不寫入", job["id"])
         return False
+    except UnsupportedLayout as e:
+        retry = False
+        message = str(e)
     except JobError as e:
         message = str(e)
     except Exception:  # noqa: BLE001
@@ -366,7 +375,7 @@ def run_once(url, worker_id, work_dir, lease_s, timeout_s, commit_id):
         message = "地端分析程式錯誤（詳見地端 log）"
     log.warning("工作 %s 失敗：%s", job["id"], message)
     with connect(url) as c:
-        fail(c, job, worker_id, message)
+        fail(c, job, worker_id, message, retry)
     return False
 
 

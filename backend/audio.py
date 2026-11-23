@@ -13,23 +13,23 @@ def register_audio(app):
     authorize = app.state.authorize
     publish = app.state.publish
 
-    def recording(c, code, pid, authorization, owner=True):
+    def recording(c, code, pid, authorization, take_id, owner=True):
         p = authorize(c, code, authorization)
         if owner and str(p['id']) != str(pid):
             raise HTTPException(403, '只能上傳自己的聲源')
-        r = c.execute('SELECT pr.*,s.status AS session_status FROM participant_recordings pr JOIN recording_sessions s ON s.id=pr.session_id WHERE pr.room_id=%s AND pr.participant_id=%s FOR UPDATE OF s,pr', (p['room_id'],pid)).fetchone()
+        r = c.execute('SELECT pr.*,s.status AS session_status FROM participant_recordings pr JOIN recording_sessions s ON s.id=pr.session_id WHERE pr.room_id=%s AND pr.participant_id=%s AND s.id=%s ORDER BY s.created_at DESC LIMIT 1 FOR UPDATE OF s,pr', (p['room_id'],pid,take_id)).fetchone()
         if not r:
             raise HTTPException(404, '找不到此房間的錄音')
         return p,r
 
     @app.put('/api/rooms/{code}/recordings/{pid}/chunks/{index}')
-    async def chunk(code: str, pid: UUID, index: int, request: Request,
+    async def chunk(code: str, pid: UUID, index: int, request: Request, take_id: UUID,
                     authorization: str | None = Header(None), x_checksum: str = Header(),
                     x_created_at: float = Header(), content_type: str = Header()):
         if index < 0 or index >= 10000000 or not math.isfinite(x_created_at) or x_created_at<0:
             raise HTTPException(422, '分段索引或時間無效')
         with db.transaction() as c:
-            recording(c,code,pid,authorization)
+            recording(c,code,pid,authorization,take_id)
         data=bytearray()
         async for part in request.stream():
             data.extend(part)
@@ -38,7 +38,7 @@ def register_audio(app):
         if not data or hashlib.sha256(data).hexdigest()!=x_checksum:
             raise HTTPException(422,'音訊 SHA256 校驗失敗')
         with db.transaction() as c:
-            p,r=recording(c,code,pid,authorization)
+            p,r=recording(c,code,pid,authorization,take_id)
             if r['session_status'] not in ('recording','finalizing','completed','interrupted') or r['actual_started_at'] is None:
                 raise HTTPException(409,'尚未回報實際開始錄音')
             if content_type != r['mime_type']:
@@ -54,18 +54,18 @@ def register_audio(app):
         return {'ok':True,'duplicate':False}
 
     @app.get('/api/rooms/{code}/recordings/{pid}/chunks')
-    def inventory(code: str,pid: UUID,authorization: str | None=Header(None)):
+    def inventory(code: str,pid: UUID,take_id: UUID,authorization: str | None=Header(None)):
         with db.transaction() as c:
-            _,r=recording(c,code,pid,authorization)
+            _,r=recording(c,code,pid,authorization,take_id)
             rows=c.execute('SELECT chunk_index,checksum FROM audio_chunks WHERE session_id=%s AND participant_id=%s ORDER BY chunk_index',(r['session_id'],pid)).fetchall()
         return {'chunks':rows,'expected_chunks':r['expected_chunks']}
 
     @app.post('/api/rooms/{code}/recordings/{pid}/finish')
-    async def finish(code: str,pid: UUID,body: Finish,authorization: str | None=Header(None)):
+    async def finish(code: str,pid: UUID,body: Finish,take_id: UUID,authorization: str | None=Header(None)):
         missing=False
         with db.transaction() as c:
-            p,r=recording(c,code,pid,authorization)
-            if r['session_status'] not in ('finalizing','completed','interrupted'):
+            p,r=recording(c,code,pid,authorization,take_id)
+            if r['session_status'] not in ('finalizing','completed','interrupted') and not p['leaving']:
                 raise HTTPException(409,'等待主控停止錄音')
             if r['actual_started_at'] is None:
                 raise HTTPException(409,'缺少錄音開始確認')
@@ -91,19 +91,23 @@ def register_audio(app):
                 c.execute('INSERT INTO audio_assets(session_id,participant_id,mime_type,chunk_count,byte_count,checksum) VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING', (r['session_id'],pid,r['mime_type'],body.chunk_count,size,sha.hexdigest()))
                 c.execute('UPDATE participant_recordings SET expected_chunks=%s,stopped_at=%s,status=%s,interrupted=%s,error=%s,duration_ms=%s,server_stopped_at=now() WHERE session_id=%s AND participant_id=%s', (body.chunk_count,body.client_ms,'interrupted' if interrupted else 'stored',interrupted,'錄音中斷；已保存可用分段' if interrupted else None,body.duration_ms,r['session_id'],pid))
                 complete=c.execute("SELECT count(*) AS n FROM participant_recordings WHERE session_id=%s AND status='stored' AND NOT interrupted", (r['session_id'],)).fetchone()['n']
-                if complete==3:
+                expected=c.execute('SELECT count(*) AS n FROM participant_recordings WHERE session_id=%s',(r['session_id'],)).fetchone()['n']
+                if complete==expected:
                     c.execute("UPDATE recording_sessions SET status='completed' WHERE id=%s", (r['session_id'],))
-                elif c.execute('SELECT count(*) AS n FROM audio_assets WHERE session_id=%s',(r['session_id'],)).fetchone()['n']==3:
+                elif c.execute('SELECT count(*) AS n FROM audio_assets WHERE session_id=%s',(r['session_id'],)).fetchone()['n']==expected:
                     c.execute("UPDATE recording_sessions SET status='interrupted' WHERE id=%s",(r['session_id'],))
+                from backend.analysis import enqueue, AnalysisRange
+                if r['session_status'] in ('finalizing','completed','interrupted'):
+                    enqueue(c, r['session_id'], AnalysisRange())
         await publish(p['room_id'])
         if missing:
             raise HTTPException(409,'分段不完整；請補傳後重新完成')
         return {'ok':True,'interrupted':interrupted}
 
     @app.get('/api/rooms/{code}/recordings/{pid}/audio')
-    def audio(code: str,pid: UUID,authorization: str | None=Header(None)):
+    def audio(code: str,pid: UUID,take_id: UUID,authorization: str | None=Header(None)):
         with db.transaction() as c:
-            _,r=recording(c,code,pid,authorization,owner=False)
+            _,r=recording(c,code,pid,authorization,take_id,owner=False)
             asset=c.execute('SELECT * FROM audio_assets WHERE session_id=%s AND participant_id=%s',(r['session_id'],pid)).fetchone()
             if not asset:
                 raise HTTPException(409,'音檔尚未封存')

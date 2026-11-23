@@ -1,6 +1,6 @@
 param([string]$DatabaseUrl = $env:DATABASE_URL, [int]$Port = 8000)
 $ErrorActionPreference = 'Stop'
-if (-not $DatabaseUrl) { throw '請設定 DATABASE_URL 或傳入 -DatabaseUrl。' }
+if (-not $DatabaseUrl) { $DatabaseUrl = 'postgresql://postgres@localhost:5432/cnc_acoustic_lab' }
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $env:DATABASE_URL = $DatabaseUrl
 # Native psycopg wheels can be blocked by Windows application control.

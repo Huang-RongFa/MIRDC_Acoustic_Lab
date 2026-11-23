@@ -13,7 +13,7 @@ test('analysis page shows local-worker queue state and blocks unverified alignme
              {id:'r2',created_at:'2026-11-11T07:00:30Z',result:{alignment:{verified:true,channels:['A','B','C'],failed_pairs:{}},summary:{}}}]}}));
   await page.route('**/api/rooms/TEST01',route=>route.fulfill({status:503,json:{detail:'offline in test'}}));
   await page.goto('/?room=TEST01');
-  await page.getByRole('button',{name:'分析結果',exact:true}).click();
+  await page.getByRole('button',{name:'錄音分析',exact:true}).click();
   const jobs=page.getByTestId('analysis-job');
   await expect(jobs).toHaveCount(3);
   await expect(jobs.nth(0)).toHaveText(/地端分析失敗：聲源 B 第 1 段 SHA256 不符/);
@@ -33,7 +33,7 @@ test('analysis page refreshes while a local job is running and stops after it fi
   await page.route('**/api/rooms/TEST01/analysis',route=>{calls++;route.fulfill({json:calls===1?{jobs:[job('running')],results:[]}:{jobs:[job('completed')],results:[{id:'r',created_at:'',result:{alignment:{verified:true,channels:['A','B'],failed_pairs:{}}}}]}});});
   await page.route('**/api/rooms/TEST01',route=>route.fulfill({status:503,json:{detail:'offline in test'}}));
   await page.goto('/?room=TEST01');
-  await page.getByRole('button',{name:'分析結果',exact:true}).click();
+  await page.getByRole('button',{name:'錄音分析',exact:true}).click();
   await expect(page.getByTestId('analysis-job')).toHaveText(/地端分析中/);
   await page.clock.fastForward(16000);
   await expect(page.getByTestId('analysis-job')).toHaveText('地端分析完成');
