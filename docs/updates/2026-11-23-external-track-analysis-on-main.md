@@ -56,7 +56,7 @@ PR #5 原本疊在 PR #2 的分支上，測試用的是另外收到的網站檔�
 ## 五、還沒有驗證的
 
 - **正式站**：實際部署的版本、PyAV 版本、地端以 `track_analysis_writer` 連線寫入資料庫，都需要部署管理入口才能驗證。目前確認的只有 GitHub `main` 與本機隔離的測試環境。
-- 網站的 API 本身（FastAPI、權限檢查）與分析頁沒有對著地端寫入的資料實際跑過。
+- 網站的 API 本身（FastAPI、權限檢查）與分析頁沒有對著地端寫入的資料實際跑過。→ 同日已在本機做完，見 [`2026-11-23-external-track-analysis-local-site.md`](2026-11-23-external-track-analysis-local-site.md)。
 - 其餘同前一份紀錄：iPhone Safari 的錄音沒有比過解碼；很長的錄音沒有時間或記憶體上限。
 
 ## 六、下一步
