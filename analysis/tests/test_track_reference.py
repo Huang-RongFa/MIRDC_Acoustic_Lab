@@ -1,8 +1,8 @@
 """把地端的數值核心和網站內建分析（backend/analysis_signal.py）逐項比對。
 
-網站的原始碼不放進這個儲存庫，所以要用環境變數指出它在本機的位置；沒有設定就整支跳過：
-  $env:SITE_ANALYSIS_SIGNAL_PY = 'D:/site/backend/analysis_signal.py'
+預設比對儲存庫裡的 backend/analysis_signal.py。要比對別的版本（例如正式站實際部署的那一份）時，用環境變數指過去：
   python -X utf8 analysis/tests/test_track_reference.py
+  $env:SITE_ANALYSIS_SIGNAL_PY = 'D:/deployed/backend/analysis_signal.py'
 
 比對的是同一段已解碼的樣本進去之後，兩邊算出來的數字。解碼本身不在這裡比（網站用 PyAV，地端用 ffmpeg 指令）。
 """
@@ -19,7 +19,7 @@ sys.path.insert(0, str(HERE.parent))
 
 from track_analysis import signal_contract as sc  # noqa: E402
 
-REF_PATH = os.environ.get("SITE_ANALYSIS_SIGNAL_PY")
+REF_PATH = os.environ.get("SITE_ANALYSIS_SIGNAL_PY") or str(HERE.parent.parent / "backend" / "analysis_signal.py")
 RNG = np.random.default_rng(20261120)
 # 地端把 spectrogram／mfcc 存成 float32；網站是 float64。這兩個容許值就是 float32 在該數值範圍的進位誤差
 SPEC_TOL_DB = 2e-5          # 數值範圍 -120..0
@@ -109,9 +109,10 @@ def test_matrix_keys_match():
 
 
 if __name__ == "__main__":
-    if not REF_PATH:
-        print("略過：沒有設定 SITE_ANALYSIS_SIGNAL_PY（網站的 backend/analysis_signal.py 在本機的路徑）")
+    if not Path(REF_PATH).is_file():
+        print(f"略過：找不到要比對的檔案 {REF_PATH}")
         sys.exit(0)
+    print(f"比對對象：{REF_PATH}")
     print(f"參考實作 sha256 = {hashlib.sha256(Path(REF_PATH).read_bytes()).hexdigest()}")
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

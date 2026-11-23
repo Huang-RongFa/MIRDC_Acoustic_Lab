@@ -4,8 +4,10 @@
   $env:WORKER_TEST_ADMIN_URL = 'postgresql://postgres@127.0.0.1:55433/postgres'
   python -X utf8 analysis/tests/test_track_publish.py
 
-資料庫結構用的是網站的正式檔案（2026-11-20 取得，來源與雜湊見 fixtures/README.md）：
-  public V1.2 schema → 本儲存庫的 001–003 → 網站的 004_multi_recorder → 005_track_analysis → 最小權限帳號腳本。
+資料庫結構用的是儲存庫裡的正式檔案：
+  public V1.2 schema → backend/migrations 的 001–005（依檔名順序，含兩個 004）→ 最小權限帳號腳本。
+  006_participant_state_compat.sql 是需要操作者核准的修補檔，不在一般順序裡，所以不套用。
+建好之後用網站自己的啟動檢查 backend/schema.py 的 check_schema 確認結構符合。
 整條流程都用最小權限帳號 track_analysis_writer 執行。這仍然是測試用的本機資料庫，不是網站實際的資料庫。
 """
 import hashlib
@@ -39,8 +41,8 @@ from track_analysis import worker  # noqa: E402
 ADMIN = os.environ.get("WORKER_TEST_ADMIN_URL")
 SCHEMA = [ROOT / "CNC_Acoustic_Lab_DB_v1_2" / "01_schema_complete.sql"] + [
     ROOT / "backend" / "migrations" / n for n in
-    ("001_mobile_capture.sql", "002_room_lifecycle.sql", "003_recording_metadata.sql")] + [
-    HERE / "fixtures" / "site_004_multi_recorder.sql", HERE / "fixtures" / "site_005_track_analysis.sql",
+    ("001_mobile_capture.sql", "002_room_lifecycle.sql", "003_recording_metadata.sql", "004_analysis_jobs.sql",
+     "004_multi_recorder.sql", "005_track_analysis.sql")] + [
     ROOT / "deploy" / "track_analysis_writer_role.sql"]
 PNG = b"\x89PNG\r\n\x1a\n"
 
@@ -848,7 +850,8 @@ def test_read_failure_after_decode_recomputes_the_shared_time_axis():
         assert q(admin, "SELECT count(*) AS n FROM mobile_capture.recording_tracks WHERE device_id=%s", (pids[0],))[0]["n"] == 0
 
 
-# ---------- 用網站後端 backend/analysis.py（v1.4.1，2026-11-20 取得）裡的 SQL 原文來讀寫 ----------
+# ---------- 用網站後端 backend/analysis.py 裡的 SQL 原文來讀寫 ----------
+# 下面 SITE_ 開頭的 SQL 是從 backend/analysis.py 照抄的；test_site_sql_still_matches_the_backend 會檢查它們還在那個檔案裡。
 SITE_GET_RUN = """SELECT * FROM track_analysis_runs WHERE session_id=%s AND start_seconds=%s
                 AND end_seconds IS NOT DISTINCT FROM %s ORDER BY created_at DESC LIMIT 1"""
 SITE_GET_IMAGE = """SELECT a.content FROM track_analysis_artifacts a JOIN track_analysis_runs r ON r.id=a.run_id
@@ -920,6 +923,33 @@ def test_site_queries_read_the_external_result():
         assert again["skipped"] is True and again["run_id"] == s["run_id"]
         row = q(admin, "SELECT status, result FROM mobile_capture.track_analysis_runs WHERE id=%s", (builtin,))[0]
         assert row["status"] == "queued" and row["result"] == {}
+
+
+def _squash(text):
+    return "".join(text.split())
+
+
+def test_site_sql_still_matches_the_backend():
+    """這裡抄的查詢如果和 backend/analysis.py 不一樣了，上面的測試就不再代表網站的行為。"""
+    source = _squash((ROOT / "backend" / "analysis.py").read_text(encoding="utf-8"))
+    for name, text in (("查詢 API", SITE_GET_RUN), ("PNG API", SITE_GET_IMAGE), ("內建 worker 領工作", SITE_CLAIM)):
+        assert _squash(text) in source, f"{name} 的 SQL 已經和 backend/analysis.py 不同"
+    assert _squash("ON CONFLICT(track_id) DO UPDATE SET analysis_status=excluded.analysis_status") in source
+    assert _squash("'track_id','session_id','device_id','device_name','channel_index','channel_label','source_channel_count',") in source
+    assert _squash("f'cnc:{sid}:{device}:{index}'") in source                       # track_id 的規則
+    assert _squash("f\"{source['source_position']} · {source['name']}\"") in source   # 顯示名稱的格式
+
+
+def test_database_passes_the_sites_own_startup_check():
+    """測試資料庫要通過網站啟動時的結構檢查（backend/schema.py），地端寫入之後也一樣。"""
+    sys.path.insert(0, str(ROOT))
+    from backend.schema import check_schema
+    with fresh_db() as (admin, writer):
+        session, _ = seed(admin, [dev_mono_wav()])
+        run(writer, session)
+        with psycopg.connect(admin, row_factory=psycopg.rows.dict_row) as c:
+            target = check_schema(c)
+            assert target["name"].startswith("track_test_")
 
 
 def test_real_migration_constraints_are_in_force():

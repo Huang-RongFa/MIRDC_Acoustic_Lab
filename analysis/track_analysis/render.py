@@ -22,7 +22,7 @@ from matplotlib.ticker import FuncFormatter
 from . import signal_contract as sc
 
 _CJK_FONTS = ("Microsoft JhengHei", "Microsoft YaHei", "SimHei")
-_FIGSIZE, _DPI = (10.0, 4.4), 120            # 1200 x 528 px
+_FIGSIZE, _DPI = (8.0, 4.0), 120             # 960 x 480 px：和網站內建分析的圖、分析頁的 2:1 圖框一致
 _NO_DATA_COLOUR = "#d9d9d9"                  # 顯示區間內沒有分析資料的地方
 _FRAME_STEP = sc.HOP_LENGTH / sc.ANALYSIS_SAMPLE_RATE
 _N_BINS = sc.FFT_SIZE // 2 + 1

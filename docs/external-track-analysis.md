@@ -2,9 +2,9 @@
 
 依據：《CNC Acoustic Lab｜外部音訊分析系統對接規格》（2026-11-17）。本文說明地端程式怎麼對上那份規格，以及目前沒有驗證到的部分。
 
-> **目前的驗證程度（2026-11-20 更新）**：已取得網站的四個正式檔案（`004_multi_recorder.sql`、`005_track_analysis.sql`、`backend/analysis.py`、`backend/analysis_signal.py`）。
+> **目前的驗證程度（2026-11-23 更新）**：網站的原始碼已經合併到 `main`（`backend/analysis.py`、`backend/analysis_signal.py`、`backend/migrations/004_multi_recorder.sql`、`005_track_analysis.sql`、`frontend/src/RecordingAnalysis.tsx`）。
 > 測試資料庫現在用正式的資料表定義建立；數值和 `analysis_signal.py` 逐項比對過；網站查詢 API、PNG API、內建 worker 用的 SQL 也對著地端寫入的資料實際執行過。
-> **還沒有做的**：對網站實際的資料庫執行、在網站的分析頁上看結果（`frontend/src/RecordingAnalysis.tsx` 仍未取得）。細節見文末「還沒有驗證的」。
+> **還沒有做的**：對正式站的資料庫執行、在正式站的分析頁上看結果。正式站實際部署的版本、PyAV 版本、地端以 `track_analysis_writer` 連線寫入，都需要部署管理入口才能驗證。細節見文末「還沒有驗證的」。
 
 ## 整合方式
 
@@ -103,7 +103,7 @@
 8. **session 沒有任何錄音者紀錄**：內建會寫一筆沒有音軌的 failed 結果；地端直接報錯，不寫入任何東西。
 9. **矩陣檔的精度**：內建存 float64，地端存 float32（檔案約一半大）。鍵名和形狀相同。目前網站沒有讀取矩陣的 API。
 10. **矩陣檔的大小上限**：內建一律寫入。地端預設（`--matrices auto`）有兩道門檻：未壓縮的頻譜矩陣超過 512 MB 就不做；壓縮後超過 64 MB 不寫進資料庫，並在該音軌的結果裡註明。`--matrices always` 一律寫入，`never` 一律不寫。
-11. **圖的外觀**：內建 960×480、英文軸標、MFCC 用紅藍配色、把資料平均攤在 `valid_range` 上。地端 1200×528、有標題、中文軸標、MFCC 用 viridis、每個窗畫在它的中心位置、沒有資料的時間畫灰色。規格要求的時間軸、頻率／係數軸、共用色階圖例兩邊都有。頁面版面是否受尺寸影響，要看到 `RecordingAnalysis.tsx` 才能確認。
+11. **圖的外觀**：尺寸相同，都是 960×480（分析頁的圖框固定 2:1）。其餘不同：內建是英文軸標、MFCC 用紅藍配色、把資料平均攤在 `valid_range` 上；地端有標題、中文軸標、MFCC 用 viridis、每個窗畫在它的中心位置、沒有資料的時間畫灰色。規格要求的時間軸、頻率／係數軸、共用色階圖例兩邊都有。
 12. **`recording_tracks.analysis_status`**：內建每次分析（含區間）都會更新它；地端只有整段分析才更新，區間分析不會把整段的摘要改掉。地端另外會更新顯示名稱。
 13. **同一批輸入已有結果時**：內建在主持人再按一次分析時，會把自己失敗的那一筆重新排入。地端不加 `--force` 一律不重算、不覆寫（使用者 2026-11-20 決定）。
 14. **`source_position` 是空值時**：地端只顯示錄音者名稱；內建會顯示成 `None · 名稱`。004 已經替舊資料補上這個欄位，正常情況不會遇到。
@@ -156,26 +156,29 @@ python -X utf8 analysis/track_analysis/worker.py --pending --once
 
 ```powershell
 python -X utf8 analysis/tests/test_track_signal.py          # 參數契約，不需要資料庫
+python -X utf8 analysis/tests/test_track_reference.py       # 和儲存庫裡的 backend/analysis_signal.py 比數值
 $env:WORKER_TEST_ADMIN_URL = 'postgresql://<測試管理帳號>@127.0.0.1:<port>/postgres'
 python -X utf8 analysis/tests/test_track_publish.py         # 每個測試建一個新資料庫，用最小權限帳號跑完整流程
-$env:SITE_ANALYSIS_SIGNAL_PY = '<網站 backend/analysis_signal.py 在本機的路徑>'
-python -X utf8 analysis/tests/test_track_reference.py       # 和內建分析比數值；沒設這個變數就跳過
 ```
 
-測試資料庫的建立順序：public V1.2 schema → 本儲存庫的 001–003 → 網站的 004、005（`analysis/tests/fixtures/`，來源與雜湊見該資料夾的 README）→ 帳號腳本。
+- 測試資料庫的建立順序：public V1.2 schema → `backend/migrations` 的 001–005（依檔名順序，含兩個 004）→ 帳號腳本。`006_participant_state_compat.sql` 是需要操作者核准的修補檔，不在一般順序裡，測試不套用。
+- 建好的資料庫要通過網站自己的啟動檢查（`backend/schema.py` 的 `check_schema`），地端寫入之後也一樣。
+- 測試裡以 `SITE_` 開頭的 SQL 是從 `backend/analysis.py` 照抄的；另有一個測試檢查這些 SQL 還在那個檔案裡，網站那邊改了查詢時測試會失敗。
+- 要比對別的版本的 `analysis_signal.py`（例如正式站實際部署的那一份），用環境變數 `SITE_ANALYSIS_SIGNAL_PY` 指過去。
 
-## 取得正式檔案時發現的事
+## 對接過程中發現的事
 
-- **收到的 `004_multi_recorder.sql` 套用會失敗**：第 11 行開頭多了兩個注音聲調符號 `ˊ˙`，PostgreSQL 在這一行報語法錯誤。拿掉之後 004、005 都能套用。測試用的是拿掉這兩個字元的版本。這兩個字元是網站那邊的原檔就有，還是傳檔時混進去的，需要確認。
+- **`004_multi_recorder.sql` 第 11 行的多餘字元**：2026-11-20 收到的檔案第 11 行開頭多了 `ˊ˙`，PostgreSQL 套用時語法錯誤。網站那邊已在 2026-11-23 修正（commit 2abf2bd），現在 `main` 上的檔案可以套用。
 - **004 需要 public V1.2 的資料表**（`public.machines`、`public.recording_sessions`）。只有 `mobile_capture` 的資料庫套不上去。
 - **新的錄音必須帶機台**（`take_requires_machine`）：這不影響地端（地端不建立錄音），但測試資料要先建機台。
-- **編號衝突**：這個儲存庫的 `backend/migrations/004_analysis_jobs.sql`（先前另一條線做的）和網站的 `004_multi_recorder.sql` 編號相同、內容無關。兩條線合併時要重新編號。
+- **編號衝突還在**：`main` 上同時有 `004_analysis_jobs.sql`（先前離線分析那條線的）和 `004_multi_recorder.sql`。兩個照檔名順序套用沒有問題（測試就是這樣建庫的），但編號重複容易誤會，要不要重新編號由儲存庫的擁有者決定。
+- **內建分析會自動跑**：分析頁寫明「完成音檔封存後自動分析」。所以每個 session 都會先有內建結果；地端的結果比它晚建立時，畫面才會改顯示地端的。
 
 ## 還沒有驗證的
 
-- **沒有對網站實際的資料庫執行過。** 現在的測試用的是正式的資料表定義，但跑在本機的測試資料庫上，資料是測試產生的。
-- **沒有在網站的分析頁上看過結果。** 查詢 API 與 PNG API 用的 SQL 對著地端的資料跑過，回傳的內容包含內建分析會寫的每一個欄位；但 API 本身（FastAPI、權限檢查）和前端頁面沒有跑。
-- **解碼比對的範圍有限**（見上面第 1 點）：只比了 11 個檔案，真實錄音只有 2 個（都是 Chrome 的 WebM／Opus）。iPhone Safari 實際錄出來的 MP4 沒有比過；網站用的 PyAV 版本不知道。
+- **沒有對正式站的資料庫執行過。** 測試用的是儲存庫裡的正式資料表定義，但跑在本機的測試資料庫上，資料是測試產生的。正式站實際部署的是哪個版本也還沒確認。
+- **沒有在網站的分析頁上看過結果。** 查詢 API 與 PNG API 用的 SQL 對著地端的資料跑過，回傳的內容包含內建分析會寫的每一個欄位，圖的尺寸也和分析頁的圖框一致；但 API 本身（FastAPI、權限檢查）和前端頁面沒有實際跑。
+- **解碼比對的範圍有限**（見上面第 1 點）：只比了 11 個檔案，真實錄音只有 2 個（都是 Chrome 的 WebM／Opus）。iPhone Safari 實際錄出來的 MP4 沒有比過；正式站用的 PyAV 版本不知道。
 - **沒有用真實的封存音檔跑過。** 測試的來源是程式產生的 Opus／AAC／WAV。
 - 很長的錄音沒有時間或記憶體上限（取樣率的上限只擋掉比例過大的情況，擋不了錄音本身很長）。
 - 記憶體：一次只把一台裝置的音訊讀進記憶體，一次只算一個聲道。單一聲道的頻譜矩陣仍然隨錄音長度增加（10 分鐘約 0.5 GB），沒有設上限，也沒有用長錄音實測過。
