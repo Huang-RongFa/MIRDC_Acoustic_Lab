@@ -9,6 +9,9 @@
 - [三手機 HTTPS／SQL 完整驗收步驟](docs/phone-test-v15.md)、[本次 V1.5 驗證](docs/verification-v15.md)。
 - [API 與 WebSocket](docs/api.md)、[SQL 與模組設計](docs/architecture.md)、[驗證紀錄](docs/verification.md)。
 - [錄音分析 V1.4：實作、Migration、啟動與驗收](docs/analysis-v14.md)：各裝置實際 Mono／Stereo 分軌、44.1 kHz 統一分析、Spectrogram／MFCC 共用色階與 PNG。
+- `analysis/`：三手機錄音的同步（含時脈漂移補償）、聲道間相位、背景雜音移除模型，見 [analysis/README.md](analysis/README.md)。
+- 每次更新的說明與下一步放在 [docs/updates/](docs/updates/)；最新一版：[2026-11-11 地端分析 worker v2](docs/updates/2026-11-11-analysis-worker-v2.md)。
+- 雲端只寫入、地端計算的分工與部署方式見 [docs/analysis-worker.md](docs/analysis-worker.md)。
 
 ## 本機執行
 
@@ -28,6 +31,7 @@ npm.cmd --prefix frontend ci
 psql -X -v ON_ERROR_STOP=1 -d '<你的 PostgreSQL 開發連線>' -f backend/migrations/001_mobile_capture.sql
 psql -X -v ON_ERROR_STOP=1 -d '<你的 PostgreSQL 開發連線>' -f backend/migrations/002_room_lifecycle.sql
 psql -X -v ON_ERROR_STOP=1 -d '<你的 PostgreSQL 開發連線>' -f backend/migrations/003_recording_metadata.sql
+psql -X -v ON_ERROR_STOP=1 -d '<你的 PostgreSQL 開發連線>' -f backend/migrations/004_analysis_jobs.sql
 ./scripts/run-backend.ps1 -DatabaseUrl '<你的 PostgreSQL 開發連線>'
 # 第二個終端
 npm.cmd --prefix frontend run dev
@@ -79,5 +83,6 @@ Pages 的 `/MIRDC_Acoustic_Lab/` base 已設定。發布時使用 `pages-site/in
 - 指令同步不等於樣本同步。已保存各機實際起點與時鐘觀測；跨手機樣本對齊演算法尚未實作。
 - 分段與重建驗證保證位元組完整性；正式伺服器尚未內建音訊解碼器逐檔檢查。瀏覽器整合測試已對產生的三個 WebM 音檔實際解碼。
 - 分析頁已有後端 Spectrogram／MFCC 自動工作程序，啟用前須依序確認 001～005 Migration 與分析依賴，詳見 [分析 V1.4](docs/analysis-v14.md)。融合、故障辨識與模型判定不在本次範圍。
+- 分析頁讀取真實後端結果與地端分析佇列狀態；`analysis/worker.py` 在地端執行模型並寫回資料表，沒有假分析數值。
 - 設定目前為房間範圍的加工快照範本；跨房間的組織帳號、共用主檔管理與既有 V1.2 分析管線整合未完成。
 - 網域、TLS 憑證、正式 PostgreSQL、備份及外部登入服務尚未部署。沒有對既有正式資料庫做 migration。

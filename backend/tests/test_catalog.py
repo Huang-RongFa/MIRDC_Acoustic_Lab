@@ -17,7 +17,7 @@ def test_settings_are_persisted_and_analysis_is_not_fabricated():
         items=[item for item in c.get(base+'/catalog',headers=headers).json()['items'] if item['name']==body['name']]
         assert len(items)==1
         assert items[0]['values']['spindle_rpm']==7000
-        assert c.get(base+'/analysis',headers=headers).json()=={'results':[]}
+        assert c.get(base+'/analysis',headers=headers).json()=={'results':[],'jobs':[]}
 
 
 def test_machine_and_conditions_available_in_new_room():

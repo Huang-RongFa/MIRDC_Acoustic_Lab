@@ -1,5 +1,7 @@
 import {api} from './api';
-import {chunks,getCapture,put,saveChunk,type Capture} from './storage';
+import {chunks,getCapture,put,saveChunk,type Capture,type ChirpEvent} from './storage';
+import {summarizeProcessing,processingLabel,type ProcessingReport} from './audioSettings';
+import {playSyncChirp} from './syncChirp';
 import type {Identity,Room} from './types';
 import {recordingSyncOptions,saveRecordingSyncOptions,type RecordingSyncOptions} from './recordingSyncOptions';
 import {PcmCapture} from './pcmCapture';
@@ -18,6 +20,10 @@ export class RecorderDevice {
   private stoppedByHost=false;
   room:Room|null=null;
   personalStop=false;
+  /** getSettings() 實際回報的收音處理狀態；網頁的關閉要求不一定被瀏覽器採用。 */
+  processing:ProcessingReport|null=null;
+  /** 本機播放同步嗶聲的時間（僅主控手機會有），供分析交叉核對。 */
+  chirps:ChirpEvent[]=[];
   key:string;
   constructor(public identity:Identity,private send:(data:object)=>void,private report:(message:string)=>void){this.key=identity.session_id+'/'+identity.participant_id;}
 
@@ -44,6 +50,7 @@ export class RecorderDevice {
     try{
       this.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,sampleRate:{ideal:this.syncOptions.requestedSampleRate},channelCount:{exact:this.syncOptions.channelCount??1}}});
       const settings=this.stream.getAudioTracks()[0].getSettings();
+      this.processing=summarizeProcessing(settings);
       if(this.syncOptions.channelCount===2&&settings.channelCount!==2)throw new Error('Stereo 未獲得兩個獨立輸入通道，請選擇 Mono');
       if(this.syncOptions.multiDeviceSyncEnabled){
         try{this.context=new AudioContext({sampleRate:this.syncOptions.requestedSampleRate});}catch{this.context=new AudioContext();}
@@ -98,7 +105,8 @@ export class RecorderDevice {
     if(this.recorder?.state==='recording')return;
     if(!this.recorder)throw new Error('未完成裝置準備，無法開始');
     this.stoppedByHost=false;
-    this.capture={key:this.key,count:0,mime:this.recorder.mimeType,started:Date.now(),performance:performance.now(),done:false,interrupted:false};
+    this.chirps=[];
+    this.capture={key:this.key,count:0,mime:this.recorder.mimeType,started:Date.now(),performance:performance.now(),done:false,interrupted:false,processing:this.processing,chirps:[]};
     await put('captures',this.capture);
     if(this.pcm)try{await this.pcm.start(this.room?.id??this.identity.session_id,this.room?.starts_at??null);}catch(e){this.report('PCM 擴充啟動失敗，原始錄音繼續：'+(e as Error).message);}
     this.recorder.ondataavailable=event=>{
@@ -134,6 +142,30 @@ export class RecorderDevice {
       }).catch(error=>this.fail('無法保存開始資訊：'+error.message));
     };
     this.recorder.start(1000);
+  }
+  /** 主控手機播放同步嗶聲；錄音中會把播放時間存進本機 capture（IndexedDB）。 */
+  async playChirp(){
+    if(!this.context||this.context.state!=='running')throw new Error('請先授權麥克風並保持此頁在前景，才能播放同步嗶聲');
+    const contextAt=playSyncChirp(this.context);
+    const event:ChirpEvent={epoch_ms:Date.now()+(contextAt-this.context.currentTime)*1000,performance_ms:performance.now()+(contextAt-this.context.currentTime)*1000,context_s:contextAt};
+    this.chirps=[...this.chirps,event];
+    // 排進同一條寫入鏈，並在執行當下取 this.capture：分段寫入會以新物件取代 capture，提早抓的參考會遺失紀錄。
+    this.writes=this.writes.then(async()=>{
+      const c=this.capture;if(!c||c.done)return;
+      c.chirps=[...(c.chirps??[]),event];await put('captures',c);
+    }).catch(error=>this.report('同步嗶聲時間未能存入本機：'+(error as Error).message));
+    return event;
+  }
+  /** 本機收音設定與時間紀錄（JSON），與音檔一起交給 analysis/。不含憑證。 */
+  async downloadMeta(){
+    const saved=await getCapture(this.key);
+    const meta={schema:'cnc-capture-meta/1',room_code:this.identity.room_code,session_id:this.identity.session_id,source_label:this.identity.source_label,
+      mime:saved?.mime??this.recorder?.mimeType??null,started_epoch_ms:saved?.started??null,started_performance_ms:saved?.performance??null,
+      stopped_epoch_ms:saved?.stopped??null,duration_ms:saved?.duration??null,interrupted:saved?.interrupted??null,chunk_count:saved?.count??0,
+      processing:saved?.processing??this.processing,chirps:saved?.chirps??this.chirps,context_sample_rate:this.context?.sampleRate??null,user_agent:navigator.userAgent};
+    const url=URL.createObjectURL(new Blob([JSON.stringify(meta,null,2)],{type:'application/json'}));
+    const a=document.createElement('a');a.href=url;a.download=`${this.identity.session_id||'local'}_${this.identity.source_label}.meta.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+    return meta;
   }
   stop(){this.stoppedByHost=true;if(this.recorder?.state==='recording')this.recorder.stop();else void this.flush();}
   async cancel(){
