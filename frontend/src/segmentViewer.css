@@ -1,0 +1,2 @@
+.segment-viewer{min-width:0}
+.segment-viewer iframe{display:block;width:100%;height:max(720px,calc(100dvh - 150px));border:1px solid var(--line,#d9dfdc);border-radius:12px;background:#fff}
