@@ -18,6 +18,9 @@
 | `tests/test_background.py` | 背景檢查的測試（6 項，合成資料、答案已知） |
 | `tests/test_ears_umik.py` | 雙聲道同一時鐘＋獨立時鐘麥克風的測試（11 項，不需要接上裝置） |
 | `tests/test_worker.py` | worker 的資料庫整合測試（每個測試建新資料庫，用最小權限帳號跑） |
+| `tests/test_score_scale.py` | 清晰度分數不隨搜尋範圍改變（5 項，合成資料：主峰附近有反射的兩支麥克風） |
+| `tests/test_alignment_fit.py` | 漂移的直線擬合不被「鎖到反射峰的窗」拉歪；沒有離群窗時結果和最小平方完全相同（6 項） |
+| `tests/test_worker_stereo.py` | worker 遇到雙聲道裝置時保留左右兩軌（5 項不需要資料庫，5 項需要） |
 | `requirements.txt` | numpy、scipy、soundfile、matplotlib、psycopg（worker 用）、imageio-ffmpeg（沒有系統 ffmpeg 時） |
 
 ## 用法
@@ -84,6 +87,10 @@ python -X utf8 analysis/tests/test_background.py
    - 精對齊：每 2 秒一窗的 GCC-PHAT（Hann 窗），取峰值清楚的窗。
    - 漂移：偏移對時間做直線擬合。不同手機的取樣時脈差約 20 ppm，37 秒就累積約 35 取樣點，所以要依直線平移加重取樣，不能只做固定偏移。
    - 驗證：對齊後再量一次，`after_alignment` 的偏移與漂移應接近 0。
+   - 清晰度分數＝峰值 ÷ 背景中位數。背景一律取 ±25 ms 的延遲範圍，和搜尋範圍無關（2026-11-23 起）。
+     先前背景只取搜尋範圍內的延遲；主峰附近有反射時，範圍越窄分數越低，第一次量（±25 ms）得到的錄音在複驗（±5 ms）時會量不到。
+   - 漂移的直線擬合會排除離群的窗（2026-11-23 起）：房間反射多時，少數窗的峰值落在反射上。
+     排除的窗數寫在 `windows_rejected_as_outliers`，實際用來擬合的窗數寫在 `windows_used_for_fit`。
 2. **相位**（每一對 A–B、A–C、B–C）：相干度 >= 0.5 的頻帶才有相位值，其餘只標記無效。
 3. **處理痕跡**：逐 0.5 秒軌間位準差與它跟整體響度的相關（`corr_with_level`）。
    注意：錄音中有停機或安靜段時，各軌只剩各自的底噪，位準差本來就會跟著響度變；固定增益的合成資料相關係數也有 0.97–0.99。只有機台穩定運轉的片段，相關高才代表可能有自動增益。

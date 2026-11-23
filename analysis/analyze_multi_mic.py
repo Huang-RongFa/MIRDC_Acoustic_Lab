@@ -14,6 +14,8 @@
       取中位數＝偏移，直線擬合＝漂移 ppm。
    c. 對齊：漂移 >= 0.5 ppm 且清楚窗 >= 5 → 依擬合直線平移＋重取樣；否則整數加分數取樣平移。
       對齊後再量一次偏移與漂移（summary.json 的 after_alignment），應接近 0。
+   d. PHAT 分數＝峰值 ÷ 背景中位數。背景一律取 ±25 ms 的延遲範圍（SCORE_REF_MS），與搜尋範圍無關：
+      第一次量（±25 ms）、對齊後複驗（±5 ms）、相位步驟的殘餘時間差（±3 ms）用的是同一把尺。
    注意：各手機各自啟動錄音，偏移＝啟動時間差＋聲學到達時間差，兩者無法從音訊分開。
 2. 相位（每一對 A–B、A–C、B–C）：Welch 相干度與相位差，只在相干度 >= 0.5 有效，其餘只標記不存值；
    短時相干度與相位熱力圖；相位斜率殘餘時間差；逐 0.5 s GCC-PHAT 殘餘時間差。
@@ -55,6 +57,8 @@ plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "Microsoft YaHei", "Sim
 plt.rcParams["axes.unicode_minus"] = False
 COH_MIN = 0.5
 PHAT_MIN = 20
+FIT_OUTLIER_MIN_SAMPLES = 2.0   # 漂移直線擬合：離直線超過這個值（且超過 3 倍穩健標準差）的窗不參加擬合；與對齊判定的殘餘偏移標準相同
+SCORE_REF_MS = 25               # PHAT 分數的背景一律取 ±25 ms 的延遲範圍（門檻 20 是在這個範圍下定的），與搜尋範圍無關
 SAME_CLOCK_SEARCH_MS = 25       # 同一時鐘的兩軌：到達時間差的搜尋範圍（25 ms 約等於 8.6 m 的路徑差）
 SAME_CLOCK_TREND_PPM = 5.0      # 到達時間差隨時間的趨勢超過這個值就提醒（聲源在移動，或其實不是同一時鐘）
 SPACING_HARD_FACTOR = 1.5       # |到達時間差| 超過 1.5·d/c + 1 取樣點 → 物理上不可能（直線間距的繞射餘裕取 1.5 倍）
@@ -74,7 +78,16 @@ def log_env(x, sr, band=(200, 8000), rate=1000):
     return e - e.mean()
 
 
-def xcorr_peak(xs, ys, maxlag, phat):
+def score_ref_lag(sr):
+    """清晰度分數的背景範圍（取樣點）。"""
+    return int(SCORE_REF_MS / 1000 * sr)
+
+
+def xcorr_peak(xs, ys, maxlag, phat, ref_lag=None):
+    """回傳 (延遲, 分數)。maxlag：去哪個範圍找峰值（取樣點）。
+    ref_lag：PHAT 分數的背景中位數取 ±ref_lag 的延遲範圍；None 時沿用 maxlag（舊行為）。
+    2026-11-23 修正：背景原本只取搜尋範圍內的延遲，主峰附近有反射時，範圍越窄分數越低，
+    同一個門檻在 ±5 ms 與 ±25 ms 下變成兩種嚴格度。本模組內的呼叫一律傳 score_ref_lag(sr)。"""
     if phat:
         # 2026-11-10 修正：矩形切窗的帶通訊號做 PHAT 會在「窗內延遲 0」產生假峰
         # （兩段獨立噪音 PHAT 分數 145；加 Hann 窗後 5.6）。原 analyze_two_mic.py 沒有這一步。
@@ -84,15 +97,20 @@ def xcorr_peak(xs, ys, maxlag, phat):
     R = np.fft.rfft(xs, n) * np.conj(np.fft.rfft(ys, n))
     if phat:
         R = R / (np.abs(R) + 1e-15)
-    c = np.fft.irfft(R, n)
-    c = np.concatenate([c[-maxlag:], c[: maxlag + 1]])
+    full = np.fft.irfft(R, n)
+    c = np.concatenate([full[-maxlag:], full[: maxlag + 1]])
     k = int(np.argmax(np.abs(c)))
     d = 0.0
     if 0 < k < len(c) - 1:
         y0, y1, y2 = np.abs(c[k - 1:k + 2])
         den = y0 - 2 * y1 + y2
         d = 0.5 * (y0 - y2) / den if den != 0 else 0.0
-    score = np.abs(c[k]) / (np.median(np.abs(c)) + 1e-20) if phat else \
+    background = c
+    if phat and ref_lag is not None:
+        r = max(1, min(int(ref_lag), n // 2 - 1))
+        if r != maxlag:
+            background = np.concatenate([full[-r:], full[: r + 1]])
+    score = np.abs(c[k]) / (np.median(np.abs(background)) + 1e-20) if phat else \
         c[k] / np.sqrt(np.dot(xs, xs) * np.dot(ys, ys) + 1e-30)
     return k - maxlag + d, float(score)
 
@@ -156,6 +174,31 @@ def coarse_chirp(chirps_ref, chirps_x, sr):
     return D0, info
 
 
+def robust_line(t, o):
+    """偏移對時間的直線擬合，回傳 (p, inlier)；p 與 np.polyfit(t, o, 1) 同格式。
+    房間反射多時，少數窗的峰值會落在反射上（離直達聲幾十個取樣點）而分數仍過門檻；
+    直接做最小平方，直線會被拉歪幾個取樣點，照著對齊後其餘的窗全部帶著同一個殘差（2026-11-23 實例）。
+    做法：Theil–Sen（兩兩斜率的中位數）先找出直線，離它超過容許值的窗不參加最後的最小平方。
+    容許值 = max(FIT_OUTLIER_MIN_SAMPLES, 3 × 1.4826 × MAD)。沒有窗被排除時，結果就是原本的最小平方。"""
+    t, o = np.asarray(t, dtype=float), np.asarray(o, dtype=float)
+    everything = np.ones(len(t), dtype=bool)
+    plain = np.polyfit(t, o, 1)
+    if len(t) < 3:
+        return plain, everything
+    i, j = np.triu_indices(len(t), 1)
+    dt = t[j] - t[i]
+    ok = dt != 0
+    if not ok.any():
+        return plain, everything
+    slope = np.median((o[j] - o[i])[ok] / dt[ok])
+    r = o - slope * t
+    r = r - np.median(r)
+    inlier = np.abs(r) <= max(FIT_OUTLIER_MIN_SAMPLES, 3 * 1.4826 * np.median(np.abs(r)))
+    if inlier.all() or inlier.sum() < 2:
+        return plain, everything
+    return np.polyfit(t[inlier], o[inlier], 1), inlier
+
+
 def fine_offset(ref, x, sr, D0, search_ms=25, exclude_s=()):
     """exclude_s：ref 上的嗶聲起點（秒）。含嗶聲的窗量到的是「主控手機→麥克風」路徑，
     不是機台路徑，會把漂移擬合拉歪（合成測試曾得 −46 ppm），所以不採用。"""
@@ -169,7 +212,8 @@ def fine_offset(ref, x, sr, D0, search_ms=25, exclude_s=()):
             continue
         if any(t - 0.1 < tc + 0.6 and tc - 0.1 < t + 2.0 for tc in exclude_s):
             continue
-        l, s_ = xcorr_peak(xa[i:i + m], xb[i + D0:i + D0 + m], int(search_ms / 1000 * sr), True)
+        l, s_ = xcorr_peak(xa[i:i + m], xb[i + D0:i + D0 + m], int(search_ms / 1000 * sr), True,
+                           ref_lag=score_ref_lag(sr))
         win.append((t + 1.0, D0 - l, s_))
     win = np.array(win).reshape(-1, 3)
     good = win[:, 2] >= PHAT_MIN
@@ -177,10 +221,13 @@ def fine_offset(ref, x, sr, D0, search_ms=25, exclude_s=()):
         raise RuntimeError(f"精對齊失敗：峰值清楚的窗只有 {int(good.sum())} 個（共 {len(win)}）；"
                            "請確認兩軌錄到同一場聲音，或在錄音開始時播放同步嗶聲")
     D = float(np.median(win[good, 1]))
-    p = np.polyfit(win[good, 0], win[good, 1], 1)
-    resid = win[good, 1] - np.polyval(p, win[good, 0])
+    p, inlier = robust_line(win[good, 0], win[good, 1])
+    used = np.zeros(len(win), bool)
+    used[np.where(good)[0][inlier]] = True
+    resid = win[used, 1] - np.polyval(p, win[used, 0])
     info = {"fine_offset_samples": D, "fine_offset_ms": 1000 * D / sr,
             "windows_total": int(len(win)), "windows_phat_ge_20": int(good.sum()),
+            "windows_used_for_fit": int(used.sum()), "windows_rejected_as_outliers": int(good.sum() - used.sum()),
             "offset_spread_p5_p95_samples": [float(np.percentile(win[good, 1], 5)),
                                              float(np.percentile(win[good, 1], 95))],
             "drift_ppm": float(1e6 * p[0] / sr), "fit_residual_std_samples": float(np.std(resid)),
@@ -244,7 +291,8 @@ def pair_phase(X1, X2, sr, cut, Z1, Z2, alpha, hop, fs_):
     tw = []
     for t in np.arange(0.0, n / sr - 1.0, 0.5):
         i = int(t * sr)
-        l, s_ = xcorr_peak(ss.sosfiltfilt(sos, X1[i:i + sr]), ss.sosfiltfilt(sos, X2[i:i + sr]), int(0.003 * sr), True)
+        l, s_ = xcorr_peak(ss.sosfiltfilt(sos, X1[i:i + sr]), ss.sosfiltfilt(sos, X2[i:i + sr]), int(0.003 * sr), True,
+                           ref_lag=score_ref_lag(sr))
         tw.append((t + 0.5, l, s_))
     tw = np.array(tw).reshape(-1, 3)
     gk = tw[:, 2] >= PHAT_MIN
