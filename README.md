@@ -3,6 +3,7 @@
 保留 V1.4 HTML 視覺的 React + TypeScript、FastAPI/WebSocket、PostgreSQL 三手機加工聲學蒐集專案。
 
 - [公開設計成果](https://huang-rongfa.github.io/MIRDC_Acoustic_Lab/)：GitHub Pages 靜態前端，沒有「介面預覽」標籤；顯示真實的未連線狀態，不冒充錄音成功。
+- GitHub Pages 的「錄音分析」頁是切段驗證頁（`msm/`，由 `scripts/build_segment_viewer.py` 產生）：471 場 MSM／CTWA 的波形、頻帶與事件表，音檔只附 CTWA。連上後端的完整系統，「錄音分析」仍是真實錄音的 Spectrogram／MFCC。
 - `frontend/`：五頁前端、真實麥克風波形、MediaRecorder 分段、IndexedDB 保存與補傳。
 - `backend/`：具房間憑證、主控權限、三人準備 barrier、後端倒數、音訊完整性檢查的可執行程式。
 - `backend/migrations/001_mobile_capture.sql`：新增 `mobile_capture` schema；不刪除或重寫 V1.2 的 28 張資料表。
